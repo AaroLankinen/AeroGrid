@@ -1,0 +1,10 @@
+#pragma once
+
+struct Drone {
+    int id;
+    double x, y, z;        // Position in 3D space
+    double vx, vy, vz;     // Velocity vectors
+    double batteryLevel;   // Percentage (0.0 - 100.0)
+
+    Drone(int _id) : id(_id), x(0), y(0), z(0), vx(0), vy(0), vz(0), batteryLevel(100.0) {}
+};
