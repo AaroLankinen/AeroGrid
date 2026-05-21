@@ -1,6 +1,6 @@
 #pragma once
 #include <QAbstractTableModel>
-#include "../core/SimulationEngine.h"
+#include "SimulationEngine.h"
 
 class TelemetryModel : public QAbstractTableModel {
     Q_OBJECT
