@@ -3,19 +3,31 @@
 TelemetryModel::TelemetryModel(SimulationEngine* engine, QObject* parent) 
     : QAbstractTableModel(parent), m_engine(engine) {}
 
-int TelemetryModel::rowCount(const QModelIndex&) const { return m_cachedDrones.size(); }
-int TelemetryModel::columnCount(const QModelIndex&) const { return 5; }
+int TelemetryModel::rowCount(const QModelIndex&) const { 
+    return m_cachedDrones.size(); 
+}
+int TelemetryModel::columnCount(const QModelIndex&) const { 
+    return 6; // Increased column count to include Status 
+}
 
 QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
     if (role != Qt::DisplayRole || !index.isValid()) return QVariant();
     
     const auto& drone = m_cachedDrones[index.row()];
     switch (index.column()) {
-        case 0: return drone.id;
-        case 1: return QString::number(drone.x, 'f', 2);
-        case 2: return QString::number(drone.y, 'f', 2);
-        case 3: return QString::number(drone.z, 'f', 2);
-        case 4: return QString::number(drone.batteryLevel, 'f', 1) + "%";
+        case 0: return drone.id; // Drone ID
+        case 1: return QString::number(drone.x, 'f', 2); // X position
+        case 2: return QString::number(drone.y, 'f', 2); // Y position
+        case 3: return QString::number(drone.z, 'f', 2); // Z position (altitude)
+        case 4: return QString::number(drone.batteryLevel, 'f', 1) + "%"; // Battery Level
+        case 5: // Drone Status
+            // Convert enum to human-readable string
+            switch (drone.status) {
+                case DroneStatus::Flying: return "Flying";
+                case DroneStatus::Crashed: return "Crashed";
+                case DroneStatus::Disconnected: return "Disconnected";
+                default: return "Unknown";
+            }
         default: return QVariant();
     }
 }
@@ -25,7 +37,8 @@ QVariant TelemetryModel::headerData(int section, Qt::Orientation orientation, in
     switch (section) {
         case 0: return "Drone ID";
         case 1: return "X"; case 2: return "Y"; case 3: return "Z";
-        case 4: return "Battery";
+        case 4: return "Battery"; // Battery Level
+        case 5: return "Status"; // New header for Status
         default: return QVariant();
     }
 }

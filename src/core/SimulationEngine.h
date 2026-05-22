@@ -5,6 +5,7 @@
 #include <mutex>
 #include <atomic>
 #include "Drone.h"
+#include "TerrainMap.h"
 
 class SimulationEngine : public QObject {
     Q_OBJECT
@@ -25,5 +26,6 @@ private:
     std::vector<Drone> m_drones;
     std::mutex m_mutex;       // Protects m_drones during thread access
     std::atomic<bool> m_running;
+    TerrainMap m_terrain;
     QThread* m_workerThread = nullptr;
 };
