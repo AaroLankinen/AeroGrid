@@ -128,16 +128,24 @@ void TerrainView::paintEvent(QPaintEvent*) {
     // Draw the pre-rendered terrain heatmap
     painter.drawImage(rect(), m_terrainCache);
 
-    // Draw drones at their relative positions
-    auto drones = m_engine->getDroneData();
     const auto& terrain = m_engine->getTerrain();
-    
     auto worldToScreen = [&](double wx, double wy) {
         float sx = (wx / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
         float sy = (wy / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
         return QPointF(sx, sy);
     };
 
+    // Draw Static Obstacles
+    painter.setBrush(QColor(100, 100, 100, 200)); // Semi-transparent gray
+    painter.setPen(QPen(Qt::black, 1));
+    for (const auto& obs : terrain.getObstacles()) {
+        QPointF screenPos = worldToScreen(obs.x, obs.y);
+        float screenRadius = (obs.radius / terrain.getCellSize()) * width() / terrain.getWidth();
+        painter.drawEllipse(screenPos, screenRadius, screenRadius);
+    }
+
+    // Draw drones at their relative positions
+    auto drones = m_engine->getDroneData();
     for (const auto& drone : drones) {
         QPointF dronePos = worldToScreen(drone.x, drone.y);
 

@@ -3,6 +3,10 @@
 #include <cmath>
 #include <algorithm>
 
+struct StaticObstacle {
+    double x, y, radius, height;
+};
+
 class TerrainMap {
 public:
     // Creates a simple map centered at (0,0)
@@ -18,6 +22,12 @@ public:
                 m_heights[y * width + x] = std::max(0.0, 15.0 - dist * 0.4);
             }
         }
+
+        // Add some static obstacles (Buildings/Trees)
+        m_obstacles.push_back({-20.0, -20.0, 5.0, 30.0}); // "Building"
+        m_obstacles.push_back({30.0, 40.0, 3.0, 40.0});   // "Tower"
+        m_obstacles.push_back({10.0, -30.0, 2.0, 10.0});  // "Tree"
+        m_obstacles.push_back({-40.0, 10.0, 2.0, 10.0});  // "Tree"
     }
 
     double getHeightAt(double x, double y) const {
@@ -31,9 +41,12 @@ public:
     int getWidth() const { return m_width; }
     int getHeight() const { return m_height; }
     double getCellSize() const { return m_cellSize; }
+    
+    const std::vector<StaticObstacle>& getObstacles() const { return m_obstacles; }
 
 private:
     int m_width, m_height;
     double m_cellSize;
     std::vector<double> m_heights;
+    std::vector<StaticObstacle> m_obstacles;
 };

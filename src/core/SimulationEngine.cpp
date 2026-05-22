@@ -135,6 +135,41 @@ void SimulationEngine::run() {
                     drone.vy *= 0.99;
                 }
 
+                // Passive Obstacle Avoidance & Collision
+                const auto& obstacles = m_terrain.getObstacles();
+                for (const auto& obs : obstacles) {
+                    double dx = drone.x - obs.x;
+                    double dy = drone.y - obs.y;
+                    double dist2D = std::sqrt(dx*dx + dy*dy);
+                    double minDist = drone.radius + obs.radius;
+                    const double obsSafetyMargin = 5.0;
+                    double safeZone = minDist + obsSafetyMargin;
+
+                    // Only worry about obstacles if we are below their top (plus a margin)
+                    if (drone.z < obs.height + 2.0) {
+                        if (dist2D < safeZone && dist2D > 0.001) {
+                            // Repulsion: Steer horizontally away from the obstacle
+                            double push = (safeZone - dist2D) * 0.2;
+                            double nx = dx / dist2D;
+                            double ny = dy / dist2D;
+                            
+                            if (drone.status == DroneStatus::Flying) {
+                                drone.vx += nx * push;
+                                drone.vy += ny * push;
+                            }
+                        }
+
+                        // Hard Collision with static obstacle
+                        if (dist2D < minDist && drone.z < obs.height) {
+                            drone.status = DroneStatus::Crashed;
+                            drone.vx = drone.vy = drone.vz = 0;
+                            // Nudge slightly outside to prevent continuous collision
+                            drone.x = obs.x + (dx / dist2D) * minDist;
+                            drone.y = obs.y + (dy / dist2D) * minDist;
+                        }
+                    }
+                }
+
                 // Apply velocity vectors
                 drone.x += drone.vx * dt; 
                 drone.y += drone.vy * dt;
