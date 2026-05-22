@@ -1,5 +1,6 @@
 #include "TerrainView.h"
 #include <QPainter>
+#include <QMouseEvent>
 #include <QtGlobal>
 
 TerrainView::TerrainView(SimulationEngine* engine, QWidget* parent)
@@ -29,6 +30,30 @@ void TerrainView::renderTerrainCache() {
     }
 }
 
+void TerrainView::mousePressEvent(QMouseEvent* event) {
+    const auto& terrain = m_engine->getTerrain();
+    double worldX = (static_cast<double>(event->x()) / width() * terrain.getWidth() - terrain.getWidth() / 2.0) * terrain.getCellSize();
+    double worldY = (static_cast<double>(event->y()) / height() * terrain.getHeight() - terrain.getHeight() / 2.0) * terrain.getCellSize();
+
+    if (event->button() == Qt::LeftButton) {
+        // Selection logic
+        auto drones = m_engine->getDroneData();
+        m_selectedDroneId = -1;
+        for (const auto& drone : drones) {
+            double dx = drone.x - worldX;
+            double dy = drone.y - worldY;
+            if (std::sqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
+                m_selectedDroneId = drone.id;
+                emit droneSelected(m_selectedDroneId);
+                break;
+            }
+        }
+    } else if (event->button() == Qt::RightButton) {
+        emit mapTargetSet(worldX, worldY);
+    }
+    update();
+}
+
 void TerrainView::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -45,9 +70,11 @@ void TerrainView::paintEvent(QPaintEvent*) {
         float py = (drone.y / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
 
         QColor color = (drone.status == DroneStatus::Crashed) ? Qt::red : Qt::cyan;
+        if (drone.id == m_selectedDroneId) color = Qt::yellow;
+        
         painter.setBrush(color);
         painter.setPen(Qt::black);
-        painter.drawEllipse(QPointF(px, py), 6, 6);
+        painter.drawEllipse(QPointF(px, py), 8, 8);
         
         painter.setPen(Qt::white);
         painter.drawText(px + 8, py + 5, QString("D%1").arg(drone.id));

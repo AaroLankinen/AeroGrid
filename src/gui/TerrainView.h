@@ -11,9 +11,15 @@ public:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+
+signals:
+    void droneSelected(int id);
+    void mapTargetSet(double worldX, double worldY);
 
 private:
     void renderTerrainCache();
     QImage m_terrainCache;
     SimulationEngine* m_engine;
+    int m_selectedDroneId = -1;
 };

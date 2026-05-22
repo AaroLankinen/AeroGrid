@@ -42,6 +42,33 @@ void SimulationEngine::run() {
             for (auto& drone : m_drones) {
                 if (drone.status == DroneStatus::Crashed) continue;
 
+                // Navigation Program
+                if (drone.hasTarget) {
+                    double tx = drone.targetX;
+                    double ty = drone.targetY;
+                    double tz = drone.targetZ;
+
+                    // Adjust Z based on flight mode
+                    if (drone.navMode == NavigationMode::MaxAltitude) {
+                        tz = 80.0; // Standard cruise altitude
+                    } else if (drone.navMode == NavigationMode::TerrainSkimming) {
+                        tz = m_terrain.getHeightAt(drone.x, drone.y) + 5.0; // 5m AGL
+                    }
+
+                    double dx = tx - drone.x;
+                    double dy = ty - drone.y;
+                    double dz = tz - drone.z;
+                    double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+
+                    if (dist > 1.0) {
+                        drone.vx = (dx / dist) * 5.0; // 5 m/s speed
+                        drone.vy = (dy / dist) * 5.0;
+                        drone.vz = (dz / dist) * 5.0;
+                    } else {
+                        drone.hasTarget = false;
+                    }
+                }
+
                 // Simple physics: update position based on velocity
                 drone.x += drone.vx * 0.05; 
                 drone.y += drone.vy * 0.05;
@@ -79,11 +106,24 @@ void SimulationEngine::run() {
                     if (d1.status == DroneStatus::Crashed || d2.status == DroneStatus::Crashed) 
                         continue;
 
+                    const double safetyMargin = 2.0; // Account for drift/buffeting
                     double dx = d1.x - d2.x;
                     double dy = d1.y - d2.y;
                     double dz = d1.z - d2.z;
-                    double distSq = dx*dx + dy*dy + dz*dz;
+                    double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
                     double minDist = d1.radius + d2.radius;
+                    double safeZone = minDist + safetyMargin;
+
+                    // Avoidance (Steering) - Push drones apart if in safety margin
+                    if (dist < safeZone && dist > 0.001) {
+                        double push = (safeZone - dist) * 0.5;
+                        d1.vx += (dx / dist) * push;
+                        d1.vy += (dy / dist) * push;
+                        d1.vz += (dz / dist) * push;
+                    }
+
+                    // Hard Collision
+                    double distSq = dist * dist;
 
                     if (distSq < (minDist * minDist)) {
                         d1.status = d2.status = DroneStatus::Crashed;
@@ -101,4 +141,15 @@ void SimulationEngine::run() {
 std::vector<Drone> SimulationEngine::getDroneData() {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_drones;
+}
+
+void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode mode) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id) {
+            drone.targetX = x; drone.targetY = y;
+            drone.navMode = mode;
+            drone.hasTarget = true;
+        }
+    }
 }
