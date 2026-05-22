@@ -14,8 +14,10 @@ public:
 
 public slots:
     void updateModel(); // Call this when engine emits simulationUpdated
+    void setSelectedId(int id);
 
 private:
     SimulationEngine* m_engine;
     std::vector<Drone> m_cachedDrones;
+    int m_selectedId = -1;
 };

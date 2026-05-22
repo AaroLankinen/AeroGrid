@@ -22,6 +22,7 @@ public:
     void clearNavQueue(int id);
     void removeNavPoint(int id, int index);
     void landDrone(int id);
+    void takeOff(int id);
 
 signals:
     void simulationUpdated(); // Signal triggered when a frame is calculated

@@ -32,6 +32,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto* clearQueueBtn = new QPushButton("Clear Selected Queue", this);
     auto* landBtn = new QPushButton("Land Drone", this);
+    auto* takeOffBtn = new QPushButton("Take Off", this);
 
     leftLayout->addWidget(m_tableView);
     leftLayout->addWidget(selectionLabel);
@@ -39,6 +40,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     leftLayout->addWidget(modeSelector);
     leftLayout->addWidget(clearQueueBtn);
     leftLayout->addWidget(landBtn);
+    leftLayout->addWidget(takeOffBtn);
     leftLayout->addWidget(startBtn);
 
 
@@ -50,6 +52,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     static int currentSelectedId = -1;
     connect(terrainView, &TerrainView::droneSelected, [=](int id) {
         currentSelectedId = id;
+        m_model->setSelectedId(id);
         selectionLabel->setText(QString("Drone %1 Selected").arg(id));
     });
 
@@ -66,6 +69,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
 
+    connect(takeOffBtn, &QPushButton::clicked, [=]() {
+        if (currentSelectedId != -1) {
+            m_engine.takeOff(currentSelectedId);
+        }
+    });
 
     connect(clearQueueBtn, &QPushButton::clicked, [=]() {
         if (currentSelectedId != -1) {

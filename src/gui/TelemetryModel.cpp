@@ -1,5 +1,6 @@
 #include "TelemetryModel.h"
 #include <QBrush>
+#include <QFont>
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, QObject* parent) 
     : QAbstractTableModel(parent), m_engine(engine) {}
@@ -29,10 +30,16 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
         return QVariant();
     }
 
+    if (role == Qt::FontRole && drone.id == m_selectedId) {
+        QFont boldFont;
+        boldFont.setBold(true);
+        return boldFont;
+    }
+
     if (role != Qt::DisplayRole) return QVariant();
     
     switch (index.column()) {
-        case 0: return drone.id; // Drone ID
+        case 0: return (drone.id == m_selectedId ? "→ " : "") + QString::number(drone.id);
         case 1: return QString::number(drone.x, 'f', 2); // X position
         case 2: return QString::number(drone.y, 'f', 2); // Y position
         case 3: return QString::number(drone.z, 'f', 2); // Z position (altitude)
@@ -75,4 +82,9 @@ void TelemetryModel::updateModel() {
     // 2. Notify the View that the layout has changed
     beginResetModel();
     endResetModel();
+}
+
+void TelemetryModel::setSelectedId(int id) {
+    m_selectedId = id;
+    emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
 }

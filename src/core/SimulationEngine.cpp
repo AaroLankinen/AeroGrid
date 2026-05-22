@@ -103,7 +103,15 @@ void SimulationEngine::run() {
                         drone.vx = drone.vy = drone.vz = 0; // Hover
                     }
                     } else {
-                        drone.vx = drone.vy = drone.vz = 0; // Hover
+                        // No active target: Maintain minimum safe hover altitude (5m AGL)
+                        double minSafeZ = groundHeight + 5.0;
+                        if (drone.z < minSafeZ - 0.1) {
+                            drone.vx = drone.vy = 0;
+                            drone.vz = 1.5; // Controlled ascent to safe hover height
+                        } else {
+                            drone.vx = drone.vy = drone.vz = 0; // Hover at current height (if safe)
+                            if (drone.z < minSafeZ) drone.z = minSafeZ; // Stabilize height
+                        }
                     }
 
                     // Battery consumption: Hovering + extra for velocity
@@ -202,6 +210,24 @@ void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode m
         if (drone.id == id) {
             drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
             drone.navMode = mode;
+        }
+    }
+}
+
+void SimulationEngine::takeOff(int id) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id && drone.status == DroneStatus::Landed) {
+            double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
+            // Safety check: Ensure battery is sufficient to reach and land from 5m safe hover altitude
+            // Requirement for 5m AGL: (5.0 / 1.5) * 1.3 + 5.0 = ~9.33%
+            double batteryRequiredForSafeHover = (5.0 / 1.5) * 1.3 + 5.0;
+
+            if (drone.batteryLevel > batteryRequiredForSafeHover) {
+                drone.status = DroneStatus::Flying;
+                drone.vz = 2.0; // Initial ascent thrust
+                break;
+            }
         }
     }
 }
