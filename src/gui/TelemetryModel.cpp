@@ -1,4 +1,5 @@
 #include "TelemetryModel.h"
+#include <QBrush>
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, QObject* parent) 
     : QAbstractTableModel(parent), m_engine(engine) {}
@@ -11,9 +12,18 @@ int TelemetryModel::columnCount(const QModelIndex&) const {
 }
 
 QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
-    if (role != Qt::DisplayRole || !index.isValid()) return QVariant();
-    
+    if (!index.isValid()) return QVariant();
+
     const auto& drone = m_cachedDrones[index.row()];
+
+    if (role == Qt::BackgroundRole) {
+        if (drone.status == DroneStatus::Crashed) return QBrush(QColor(255, 200, 200)); // Light Red
+        if (drone.batteryLevel < 20.0) return QBrush(QColor(255, 230, 150)); // Light Orange/Yellow
+        return QVariant();
+    }
+
+    if (role != Qt::DisplayRole) return QVariant();
+    
     switch (index.column()) {
         case 0: return drone.id; // Drone ID
         case 1: return QString::number(drone.x, 'f', 2); // X position

@@ -65,9 +65,33 @@ void TerrainView::paintEvent(QPaintEvent*) {
     auto drones = m_engine->getDroneData();
     const auto& terrain = m_engine->getTerrain();
     
+    auto worldToScreen = [&](double wx, double wy) {
+        float sx = (wx / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
+        float sy = (wy / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
+        return QPointF(sx, sy);
+    };
+
     for (const auto& drone : drones) {
-        float px = (drone.x / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
-        float py = (drone.y / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
+        QPointF dronePos = worldToScreen(drone.x, drone.y);
+
+        // Draw Navigation Path
+        if (!drone.navQueue.empty()) {
+            QPen pathPen(Qt::white, 1, Qt::DashLine);
+            painter.setPen(pathPen);
+            
+            QPointF lastPt = dronePos;
+            for (const auto& pt : drone.navQueue) {
+                QPointF currentPt = worldToScreen(pt.x, pt.y);
+                painter.drawLine(lastPt, currentPt);
+                
+                painter.setBrush(Qt::NoBrush);
+                painter.drawEllipse(currentPt, 3, 3); // Target dot
+                lastPt = currentPt;
+            }
+        }
+
+        float px = dronePos.x();
+        float py = dronePos.y();
 
         QColor color = (drone.status == DroneStatus::Crashed) ? Qt::red : Qt::cyan;
         if (drone.id == m_selectedDroneId) color = Qt::yellow;

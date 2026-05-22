@@ -46,10 +46,11 @@ void SimulationEngine::run() {
 
                 if (drone.batteryLevel > 0) {
                     // Navigation Program (Thrust counteracts gravity to hover or move)
-                    if (drone.hasTarget) {
-                    double tx = drone.targetX;
-                    double ty = drone.targetY;
-                    double tz = drone.targetZ;
+                    if (!drone.navQueue.empty()) {
+                        auto& target = drone.navQueue.front();
+                        double tx = target.x;
+                        double ty = target.y;
+                        double tz = target.z;
 
                     // Adjust Z based on flight mode
                     if (drone.navMode == NavigationMode::MaxAltitude) {
@@ -68,7 +69,8 @@ void SimulationEngine::run() {
                         drone.vy = (dy / dist) * 5.0;
                         drone.vz = (dz / dist) * 5.0;
                     } else {
-                        drone.hasTarget = false;
+                        // Reached point, pop from queue
+                        drone.navQueue.erase(drone.navQueue.begin());
                         drone.vx = drone.vy = drone.vz = 0; // Hover
                     }
                     } else {
@@ -80,7 +82,6 @@ void SimulationEngine::run() {
                     drone.batteryLevel -= (0.05 + speed * 0.01);
                 } else {
                     // Power lost: Fall under gravity
-                    drone.hasTarget = false;
                     drone.vz -= gravity * dt;
                     // Simple air resistance for horizontal momentum
                     drone.vx *= 0.99;
@@ -163,9 +164,8 @@ void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode m
     std::lock_guard<std::mutex> lock(m_mutex);
     for (auto& drone : m_drones) {
         if (drone.id == id) {
-            drone.targetX = x; drone.targetY = y;
+            drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
             drone.navMode = mode;
-            drone.hasTarget = true;
         }
     }
 }
