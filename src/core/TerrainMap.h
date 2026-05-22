@@ -7,6 +7,11 @@ struct StaticObstacle {
     double x, y, radius, height;
 };
 
+struct DynamicObstacle {
+    int id;
+    double x, y, z, vx, vy, vz, radius;
+};
+
 class TerrainMap {
 public:
     // Creates a simple map centered at (0,0)

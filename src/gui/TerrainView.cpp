@@ -144,6 +144,15 @@ void TerrainView::paintEvent(QPaintEvent*) {
         painter.drawEllipse(screenPos, screenRadius, screenRadius);
     }
 
+    // Draw Dynamic Obstacles (e.g., Birds/Other Aircraft)
+    painter.setBrush(QColor(255, 0, 255, 180)); // Semi-transparent magenta
+    painter.setPen(QPen(Qt::darkMagenta, 1));
+    for (const auto& obs : m_engine->getDynamicObstacleData()) {
+        QPointF screenPos = worldToScreen(obs.x, obs.y);
+        float screenRadius = (obs.radius / terrain.getCellSize()) * width() / terrain.getWidth();
+        painter.drawEllipse(screenPos, screenRadius, screenRadius);
+    }
+
     // Draw drones at their relative positions
     auto drones = m_engine->getDroneData();
     for (const auto& drone : drones) {

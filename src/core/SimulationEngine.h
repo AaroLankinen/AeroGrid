@@ -16,6 +16,7 @@ public:
     
     // Thread-safe access to drone data for the UI
     std::vector<Drone> getDroneData();
+    std::vector<DynamicObstacle> getDynamicObstacleData();
     const TerrainMap& getTerrain() const { return m_terrain; }
     
     void assignTarget(int id, double x, double y, NavigationMode mode);
@@ -32,6 +33,7 @@ private:
     void run(); // Main loop for the simulation thread
     
     std::vector<Drone> m_drones;
+    std::vector<DynamicObstacle> m_dynamicObstacles;
     std::mutex m_mutex;       // Protects m_drones during thread access
     std::atomic<bool> m_running;
     TerrainMap m_terrain;

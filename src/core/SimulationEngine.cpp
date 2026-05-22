@@ -10,6 +10,12 @@ SimulationEngine::SimulationEngine(QObject* parent)
     // Initialize with 5 dummy drones
     for(int i = 0; i < 5; ++i) m_drones.emplace_back(i);
     std::srand(std::time(nullptr)); // Seed random for GPS drift
+
+    // Initialize some dynamic obstacles (Birds/Unauthorized Drones)
+    // Moving at ~3 m/s in various directions
+    m_dynamicObstacles.push_back({100, -50.0, 50.0, 25.0, 3.0, 2.0, 0.0, 1.5});
+    m_dynamicObstacles.push_back({101, 40.0, -60.0, 30.0, -2.0, 3.5, 0.5, 2.0});
+    m_dynamicObstacles.push_back({102, 0.0, 80.0, 40.0, 4.0, -1.0, -0.2, 1.2});
 }
 
 void SimulationEngine::startSimulation() {
@@ -41,6 +47,19 @@ void SimulationEngine::run() {
     while (m_running) {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
+
+            // 0. Update Dynamic Obstacles
+            for (auto& obs : m_dynamicObstacles) {
+                obs.x += obs.vx * dt;
+                obs.y += obs.vy * dt;
+                obs.z += obs.vz * dt;
+
+                // Simple boundary logic: bounce back if they hit map edges (approx 100m)
+                if (std::abs(obs.x) > 90.0) obs.vx *= -1;
+                if (std::abs(obs.y) > 90.0) obs.vy *= -1;
+                if (obs.z < 10.0 || obs.z > 60.0) obs.vz *= -1;
+            }
+
             for (auto& drone : m_drones) {
                 double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
 
@@ -170,6 +189,37 @@ void SimulationEngine::run() {
                     }
                 }
 
+                // Passive Dynamic Obstacle Avoidance
+                for (const auto& obs : m_dynamicObstacles) {
+                    double dx = drone.x - obs.x;
+                    double dy = drone.y - obs.y;
+                    double dz = drone.z - obs.z;
+                    double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                    double minDist = drone.radius + obs.radius;
+                    const double dynamicSafetyMargin = 5.0;
+                    double safeZone = minDist + dynamicSafetyMargin;
+
+                    if (dist < safeZone && dist > 0.001) {
+                        // Repulsion Force
+                        double push = (safeZone - dist) * 0.3;
+                        double nx = dx / dist;
+                        double ny = dy / dist;
+                        double nz = dz / dist;
+
+                        if (drone.status == DroneStatus::Flying) {
+                            drone.vx += nx * push;
+                            drone.vy += ny * push;
+                            drone.vz += nz * push;
+                        }
+                    }
+
+                    // Hard Collision with dynamic obstacle
+                    if (dist < minDist) {
+                        drone.status = DroneStatus::Crashed;
+                        drone.vx = drone.vy = drone.vz = 0;
+                    }
+                }
+
                 // Apply velocity vectors
                 drone.x += drone.vx * dt; 
                 drone.y += drone.vy * dt;
@@ -258,6 +308,11 @@ void SimulationEngine::run() {
 std::vector<Drone> SimulationEngine::getDroneData() {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_drones;
+}
+
+std::vector<DynamicObstacle> SimulationEngine::getDynamicObstacleData() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_dynamicObstacles;
 }
 
 void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode mode) {
