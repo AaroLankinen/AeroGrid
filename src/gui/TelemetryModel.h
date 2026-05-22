@@ -15,6 +15,7 @@ public:
 public slots:
     void updateModel(); // Call this when engine emits simulationUpdated
     void setSelectedId(int id);
+    int getDroneIdAt(int row) const;
 
 private:
     SimulationEngine* m_engine;

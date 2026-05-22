@@ -88,3 +88,8 @@ void TelemetryModel::setSelectedId(int id) {
     m_selectedId = id;
     emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
 }
+
+int TelemetryModel::getDroneIdAt(int row) const {
+    if (row < 0 || row >= (int)m_cachedDrones.size()) return -1;
+    return m_cachedDrones[row].id;
+}

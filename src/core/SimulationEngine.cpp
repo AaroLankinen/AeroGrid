@@ -100,6 +100,10 @@ void SimulationEngine::run() {
                     } else {
                         // Reached point, pop from queue
                         drone.navQueue.erase(drone.navQueue.begin());
+                        if (drone.returningToBase && drone.navQueue.empty()) {
+                            drone.status = DroneStatus::Landing;
+                            drone.returningToBase = false;
+                        }
                         drone.vx = drone.vy = drone.vz = 0; // Hover
                     }
                     } else {
@@ -210,6 +214,7 @@ void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode m
         if (drone.id == id) {
             drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
             drone.navMode = mode;
+            drone.returningToBase = false; // Manual target overrides RTB
         }
     }
 }
@@ -228,6 +233,18 @@ void SimulationEngine::takeOff(int id) {
                 drone.vz = 2.0; // Initial ascent thrust
                 break;
             }
+        }
+    }
+}
+
+void SimulationEngine::returnToBase(int id) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id && drone.status == DroneStatus::Flying) {
+            drone.navQueue.clear();
+            drone.navQueue.push_back({0.0, 0.0, 0.0});
+            drone.returningToBase = true;
+            break;
         }
     }
 }

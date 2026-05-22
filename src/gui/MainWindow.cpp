@@ -27,12 +27,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* modeSelector = new QComboBox(this);
     modeSelector->addItem("Max Altitude", static_cast<int>(NavigationMode::MaxAltitude));
     modeSelector->addItem("Terrain Skimming", static_cast<int>(NavigationMode::TerrainSkimming));
+    // Ensure the dropdown closes and loses focus after a selection
+    connect(modeSelector, QOverload<int>::of(&QComboBox::activated), [=](int) { 
+        modeSelector->clearFocus(); 
+    });
 
     auto* selectionLabel = new QLabel("Select a drone on the map", this);
 
     auto* clearQueueBtn = new QPushButton("Clear Selected Queue", this);
     auto* landBtn = new QPushButton("Land Drone", this);
     auto* takeOffBtn = new QPushButton("Take Off", this);
+    auto* rtbBtn = new QPushButton("Return to Base", this);
 
     leftLayout->addWidget(m_tableView);
     leftLayout->addWidget(selectionLabel);
@@ -41,6 +46,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     leftLayout->addWidget(clearQueueBtn);
     leftLayout->addWidget(landBtn);
     leftLayout->addWidget(takeOffBtn);
+    leftLayout->addWidget(rtbBtn);
     leftLayout->addWidget(startBtn);
 
 
@@ -50,12 +56,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             terrainView, QOverload<>::of(&TerrainView::update));
             
     static int currentSelectedId = -1;
-    connect(terrainView, &TerrainView::droneSelected, [=](int id) {
+    // FIX: Capture selectionLabel and this by value [=] to avoid dangling references to the stack
+    auto updateSelection = [this, selectionLabel](int id) {
         currentSelectedId = id;
         m_model->setSelectedId(id);
         selectionLabel->setText(QString("Drone %1 Selected").arg(id));
+    };
+
+    connect(terrainView, &TerrainView::droneSelected, [=](int id) {
+        updateSelection(id);
     });
 
+    connect(m_tableView, &QTableView::clicked, [=](const QModelIndex &index) {
+        updateSelection(m_model->getDroneIdAt(index.row()));
+    });
+
+
+    connect(rtbBtn, &QPushButton::clicked, [=]() {
+        if (currentSelectedId != -1) {
+            m_engine.returnToBase(currentSelectedId);
+        }
+    });
     connect(landBtn, &QPushButton::clicked, [=]() {
         if (currentSelectedId != -1) {
             m_engine.landDrone(currentSelectedId);
