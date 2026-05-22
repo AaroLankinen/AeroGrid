@@ -3,6 +3,11 @@
 #include "SimulationEngine.h"
 #include <set>
 
+/**
+ * @brief Custom TableModel for displaying real-time drone telemetry.
+ * 
+ * Features dynamic row styling for warnings and stable selection tracking.
+ */
 class TelemetryModel : public QAbstractTableModel {
     Q_OBJECT
 public:
@@ -14,6 +19,12 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
 
 public slots:
+    /**
+     * @brief Refreshes the local data cache from the engine.
+     * 
+     * Emits dataChanged() to refresh the view. If the drone count changes,
+     * it performs a model reset instead.
+     */
     void updateModel(); // Call this when engine emits simulationUpdated
     void setSelectedIds(const std::set<int>& ids);
     int getDroneIdAt(int row) const;

@@ -7,6 +7,11 @@
 #include "Drone.h"
 #include "TerrainMap.h"
 
+/**
+ * @brief Background physics engine for the AeroGrid simulation.
+ * 
+ * Processes kinematics, collision avoidance, and navigation logic in a dedicated thread.
+ */
 class SimulationEngine : public QObject {
     Q_OBJECT
 public:
@@ -15,6 +20,12 @@ public:
     void stopSimulation();
     
     // Thread-safe access to drone data for the UI
+    /**
+     * @brief Returns a deep copy of all current drone states.
+     * 
+     * Uses a internal mutex to ensure consistency while the worker thread
+     * is actively calculating physics.
+     */
     std::vector<Drone> getDroneData();
     std::vector<DynamicObstacle> getDynamicObstacleData();
     const TerrainMap& getTerrain() const { return m_terrain; }
