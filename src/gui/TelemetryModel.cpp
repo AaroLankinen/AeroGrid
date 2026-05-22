@@ -11,7 +11,7 @@ int TelemetryModel::rowCount(const QModelIndex&) const {
     return m_cachedDrones.size(); 
 }
 int TelemetryModel::columnCount(const QModelIndex&) const { 
-    return 6; // Increased column count to include Status 
+    return 7; // Increased column count to include Proximity Alert
 }
 
 QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
@@ -63,6 +63,7 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
                 case DroneStatus::Landed: return "Landed (Charging)";
                 default: return "Unknown";
             }
+        case 6: return drone.proximityAlert ? "⚠️ NEAR OBJECT" : "Clear";
         default: return QVariant();
     }
 }
@@ -74,6 +75,7 @@ QVariant TelemetryModel::headerData(int section, Qt::Orientation orientation, in
         case 1: return "X"; case 2: return "Y"; case 3: return "Z";
         case 4: return "Battery"; // Battery Level
         case 5: return "Status"; // New header for Status
+        case 6: return "Proximity";
         default: return QVariant();
     }
 }

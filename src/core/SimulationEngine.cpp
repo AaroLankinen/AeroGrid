@@ -62,6 +62,7 @@ void SimulationEngine::run() {
 
             for (auto& drone : m_drones) {
                 double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
+                drone.proximityAlert = false; // Reset alert state at start of frame
 
                 // Handle Landed State (Solar Charging)
                 if (drone.status == DroneStatus::Landed) {
@@ -167,6 +168,8 @@ void SimulationEngine::run() {
                     // Only worry about obstacles if we are below their top (plus a margin)
                     if (drone.z < obs.height + 2.0) {
                         if (dist2D < safeZone && dist2D > 0.001) {
+                            drone.proximityAlert = true;
+
                             // Repulsion: Steer horizontally away from the obstacle
                             double push = (safeZone - dist2D) * 0.2;
                             double nx = dx / dist2D;
@@ -200,6 +203,8 @@ void SimulationEngine::run() {
                     double safeZone = minDist + dynamicSafetyMargin;
 
                     if (dist < safeZone && dist > 0.001) {
+                        drone.proximityAlert = true;
+
                         // Repulsion Force
                         double push = (safeZone - dist) * 0.3;
                         double nx = dx / dist;
@@ -274,6 +279,9 @@ void SimulationEngine::run() {
 
                     // Passive Collision Avoidance (Repulsion Field)
                     if (dist < safeZone) {
+                        d1.proximityAlert = true;
+                        d2.proximityAlert = true;
+
                         double push = (safeZone - dist) * 0.2;
                         double nx = dx / dist;
                         double ny = dy / dist;
