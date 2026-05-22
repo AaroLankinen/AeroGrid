@@ -76,9 +76,15 @@ void SimulationEngine::run() {
                     }
                     // Navigation Program
                     else if (!drone.navQueue.empty()) {
-                        auto& target = drone.navQueue.front();
-                        double tx = target.x;
-                        double ty = target.y;
+                        const auto& target = drone.navQueue.front();
+
+                        // Formation Flying: Apply unique offsets based on ID to avoid mid-air convergence
+                        // This creates a loose grid formation around the shared nav point
+                        double offsetX = (drone.id % 3 - 1) * 4.0; 
+                        double offsetY = (drone.id / 3 - 1) * 4.0;
+
+                        double tx = target.x + offsetX;
+                        double ty = target.y + offsetY;
                         double tz = target.z;
 
                     // Adjust Z based on flight mode
@@ -171,26 +177,37 @@ void SimulationEngine::run() {
                     if (d1.status == DroneStatus::Crashed || d2.status == DroneStatus::Crashed) 
                         continue;
 
-                    const double safetyMargin = 2.0; // Account for drift/buffeting
+                    const double safetyMargin = 4.0; // Safety buffer to maintain between drones
                     double dx = d1.x - d2.x;
                     double dy = d1.y - d2.y;
                     double dz = d1.z - d2.z;
                     double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                    if (dist < 0.001) continue; 
+
                     double minDist = d1.radius + d2.radius;
                     double safeZone = minDist + safetyMargin;
 
-                    // Avoidance (Steering) - Push drones apart if in safety margin
-                    if (dist < safeZone && dist > 0.001) {
-                        double push = (safeZone - dist) * 0.5;
-                        d1.vx += (dx / dist) * push;
-                        d1.vy += (dy / dist) * push;
-                        d1.vz += (dz / dist) * push;
+                    // Passive Collision Avoidance (Repulsion Field)
+                    if (dist < safeZone) {
+                        double push = (safeZone - dist) * 0.2;
+                        double nx = dx / dist;
+                        double ny = dy / dist;
+                        double nz = dz / dist;
+
+                        if (d1.status != DroneStatus::Landed) {
+                            d1.vx += nx * push;
+                            d1.vy += ny * push;
+                            d1.vz += nz * push;
+                        }
+                        if (d2.status != DroneStatus::Landed) {
+                            d2.vx -= nx * push;
+                            d2.vy -= ny * push;
+                            d2.vz -= nz * push;
+                        }
                     }
 
                     // Hard Collision
-                    double distSq = dist * dist;
-
-                    if (distSq < (minDist * minDist)) {
+                    if (dist < minDist) {
                         d1.status = d2.status = DroneStatus::Crashed;
                         d1.vx = d1.vy = d1.vz = 0;
                         d2.vx = d2.vy = d2.vz = 0;
