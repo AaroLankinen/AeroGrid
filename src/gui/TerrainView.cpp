@@ -30,10 +30,16 @@ void TerrainView::renderTerrainCache() {
     }
 }
 
+void TerrainView::setSelectedIds(const std::set<int>& ids) {
+    m_selectedIds = ids;
+    update();
+}
+
 void TerrainView::mousePressEvent(QMouseEvent* event) {
     const auto& terrain = m_engine->getTerrain();
-    double worldX = (static_cast<double>(event->x()) / width() * terrain.getWidth() - terrain.getWidth() / 2.0) * terrain.getCellSize();
-    double worldY = (static_cast<double>(event->y()) / height() * terrain.getHeight() - terrain.getHeight() / 2.0) * terrain.getCellSize();
+    double worldX = (static_cast<double>(event->position().x()) / width() * terrain.getWidth() - terrain.getWidth() / 2.0) * terrain.getCellSize();
+    double worldY = (static_cast<double>(event->position().y()) / height() * terrain.getHeight() - terrain.getHeight() / 2.0) * terrain.getCellSize();
+    bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
 
     if (event->button() == Qt::LeftButton) {
         auto drones = m_engine->getDroneData();
@@ -51,21 +57,68 @@ void TerrainView::mousePressEvent(QMouseEvent* event) {
             }
         }
 
-        // If no point clicked, try selecting a drone
-        m_selectedDroneId = -1;
+        bool droneHit = false;
         for (const auto& drone : drones) {
             double dx = drone.x - worldX;
             double dy = drone.y - worldY;
             if (std::sqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
-                m_selectedDroneId = drone.id;
-                emit droneSelected(m_selectedDroneId);
+                if (ctrlPressed) {
+                    if (m_selectedIds.count(drone.id)) m_selectedIds.erase(drone.id);
+                    else m_selectedIds.insert(drone.id);
+                } else {
+                    m_selectedIds = {drone.id};
+                }
+                emit dronesSelected(m_selectedIds);
+                droneHit = true;
                 break;
             }
+        }
+
+        if (!droneHit) {
+            if (!ctrlPressed) {
+                m_selectedIds.clear();
+                emit dronesSelected(m_selectedIds);
+            }
+            m_origin = event->pos();
+            if (!m_rubberBand) m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
+            m_rubberBand->setGeometry(QRect(m_origin, QSize()));
+            m_rubberBand->show();
         }
     } else if (event->button() == Qt::RightButton) {
         emit mapTargetSet(worldX, worldY);
     }
     update();
+}
+
+void TerrainView::mouseMoveEvent(QMouseEvent* event) {
+    if (m_rubberBand) m_rubberBand->setGeometry(QRect(m_origin, event->pos()).normalized());
+}
+
+void TerrainView::mouseReleaseEvent(QMouseEvent* event) {
+    if (m_rubberBand) {
+        QRect rect = m_rubberBand->geometry();
+        m_rubberBand->hide();
+        
+        auto drones = m_engine->getDroneData();
+        const auto& terrain = m_engine->getTerrain();
+        
+        auto worldToScreen = [&](double wx, double wy) {
+            float sx = (wx / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
+            float sy = (wy / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
+            return QPoint(static_cast<int>(sx), static_cast<int>(sy));
+        };
+
+        if (!(event->modifiers() & Qt::ControlModifier)) m_selectedIds.clear();
+
+        for (const auto& drone : drones) {
+            if (rect.contains(worldToScreen(drone.x, drone.y))) {
+                m_selectedIds.insert(drone.id);
+            }
+        }
+        emit dronesSelected(m_selectedIds);
+        delete m_rubberBand;
+        m_rubberBand = nullptr;
+    }
 }
 
 void TerrainView::paintEvent(QPaintEvent*) {
@@ -108,7 +161,7 @@ void TerrainView::paintEvent(QPaintEvent*) {
         float py = dronePos.y();
 
         QColor color = (drone.status == DroneStatus::Crashed) ? Qt::red : Qt::cyan;
-        if (drone.id == m_selectedDroneId) color = Qt::yellow;
+        if (m_selectedIds.count(drone.id)) color = Qt::yellow;
         
         painter.setBrush(color);
         painter.setPen(Qt::black);

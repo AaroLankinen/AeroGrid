@@ -1,6 +1,7 @@
 #pragma once
 #include <QAbstractTableModel>
 #include "SimulationEngine.h"
+#include <set>
 
 class TelemetryModel : public QAbstractTableModel {
     Q_OBJECT
@@ -14,11 +15,11 @@ public:
 
 public slots:
     void updateModel(); // Call this when engine emits simulationUpdated
-    void setSelectedId(int id);
+    void setSelectedIds(const std::set<int>& ids);
     int getDroneIdAt(int row) const;
 
 private:
     SimulationEngine* m_engine;
     std::vector<Drone> m_cachedDrones;
-    int m_selectedId = -1;
+    std::set<int> m_selectedIds;
 };

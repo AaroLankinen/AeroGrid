@@ -30,7 +30,7 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
         return QVariant();
     }
 
-    if (role == Qt::FontRole && drone.id == m_selectedId) {
+    if (role == Qt::FontRole && m_selectedIds.count(drone.id)) {
         QFont boldFont;
         boldFont.setBold(true);
         return boldFont;
@@ -39,7 +39,7 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
     if (role != Qt::DisplayRole) return QVariant();
     
     switch (index.column()) {
-        case 0: return (drone.id == m_selectedId ? "→ " : "") + QString::number(drone.id);
+        case 0: return (m_selectedIds.count(drone.id) ? "→ " : "") + QString::number(drone.id);
         case 1: return QString::number(drone.x, 'f', 2); // X position
         case 2: return QString::number(drone.y, 'f', 2); // Y position
         case 3: return QString::number(drone.z, 'f', 2); // Z position (altitude)
@@ -84,8 +84,8 @@ void TelemetryModel::updateModel() {
     endResetModel();
 }
 
-void TelemetryModel::setSelectedId(int id) {
-    m_selectedId = id;
+void TelemetryModel::setSelectedIds(const std::set<int>& ids) {
+    m_selectedIds = ids;
     emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
 }
 
