@@ -36,14 +36,17 @@ void SimulationEngine::stopSimulation() {
 }
 
 void SimulationEngine::run() {
+    const double gravity = 9.81;
+    const double dt = 0.05;
     while (m_running) {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             for (auto& drone : m_drones) {
                 if (drone.status == DroneStatus::Crashed) continue;
 
-                // Navigation Program
-                if (drone.hasTarget) {
+                if (drone.batteryLevel > 0) {
+                    // Navigation Program (Thrust counteracts gravity to hover or move)
+                    if (drone.hasTarget) {
                     double tx = drone.targetX;
                     double ty = drone.targetY;
                     double tz = drone.targetZ;
@@ -66,18 +69,33 @@ void SimulationEngine::run() {
                         drone.vz = (dz / dist) * 5.0;
                     } else {
                         drone.hasTarget = false;
+                        drone.vx = drone.vy = drone.vz = 0; // Hover
                     }
+                    } else {
+                        drone.vx = drone.vy = drone.vz = 0; // Hover
+                    }
+
+                    // Battery consumption: Hovering + extra for velocity
+                    double speed = std::sqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+                    drone.batteryLevel -= (0.05 + speed * 0.01);
+                } else {
+                    // Power lost: Fall under gravity
+                    drone.hasTarget = false;
+                    drone.vz -= gravity * dt;
+                    // Simple air resistance for horizontal momentum
+                    drone.vx *= 0.99;
+                    drone.vy *= 0.99;
                 }
 
-                // Simple physics: update position based on velocity
-                drone.x += drone.vx * 0.05; 
-                drone.y += drone.vy * 0.05;
-                drone.z += drone.vz * 0.05;
+                // Apply velocity vectors
+                drone.x += drone.vx * dt; 
+                drone.y += drone.vy * dt;
+                drone.z += drone.vz * dt;
 
                 // Add minor random noise to simulate GPS drift
                 drone.x += (rand() % 100 - 50) / 1000.0;
                 drone.y += (rand() % 100 - 50) / 1000.0;
-                drone.z += (rand() % 100 - 50) / 1000.0; // Simulate altitude changes
+                drone.z += (rand() % 100 - 50) / 1000.0;
 
                 // Check for terrain collision
                 double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
@@ -88,12 +106,10 @@ void SimulationEngine::run() {
                 }
 
                 // Signal strength simulation (linear decay from origin)
-                double dist = std::sqrt(drone.x * drone.x + drone.y * drone.y + drone.z * drone.z);
+                double distToOrigin = std::sqrt(drone.x * drone.x + drone.y * drone.y + drone.z * drone.z);
                 const double maxRange = 500.0;
-                drone.signalStrength = std::max(0.0, 1.0 - (dist / maxRange));
+                drone.signalStrength = std::max(0.0, 1.0 - (distToOrigin / maxRange));
 
-                // Simulate battery drain
-                drone.batteryLevel -= 0.1;
                 if (drone.batteryLevel < 0) drone.batteryLevel = 0;
             }
 
