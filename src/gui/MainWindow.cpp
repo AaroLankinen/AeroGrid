@@ -31,13 +31,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* selectionLabel = new QLabel("Select a drone on the map", this);
 
     auto* clearQueueBtn = new QPushButton("Clear Selected Queue", this);
+    auto* landBtn = new QPushButton("Land Drone", this);
 
     leftLayout->addWidget(m_tableView);
     leftLayout->addWidget(selectionLabel);
     leftLayout->addWidget(new QLabel("Flight Mode:"));
     leftLayout->addWidget(modeSelector);
     leftLayout->addWidget(clearQueueBtn);
+    leftLayout->addWidget(landBtn);
     leftLayout->addWidget(startBtn);
+
 
     auto* terrainView = new TerrainView(&m_engine, this);
     // Trigger a repaint of the map whenever simulation data changes
@@ -48,6 +51,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(terrainView, &TerrainView::droneSelected, [=](int id) {
         currentSelectedId = id;
         selectionLabel->setText(QString("Drone %1 Selected").arg(id));
+    });
+
+    connect(landBtn, &QPushButton::clicked, [=]() {
+        if (currentSelectedId != -1) {
+            m_engine.landDrone(currentSelectedId);
+        }
     });
 
     connect(terrainView, &TerrainView::mapTargetSet, [=](double x, double y) {

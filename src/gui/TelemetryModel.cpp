@@ -42,6 +42,8 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
                     return "Maintaining position";
                 case DroneStatus::Crashed: return "Crashed";
                 case DroneStatus::Disconnected: return "Disconnected";
+                case DroneStatus::Landing: return "Landing...";
+                case DroneStatus::Landed: return "Landed (Charging)";
                 default: return "Unknown";
             }
         default: return QVariant();

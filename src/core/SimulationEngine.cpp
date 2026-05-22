@@ -42,11 +42,30 @@ void SimulationEngine::run() {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             for (auto& drone : m_drones) {
+                double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
+
+                // Handle Landed State (Solar Charging)
+                if (drone.status == DroneStatus::Landed) {
+                    drone.batteryLevel = std::min(100.0, drone.batteryLevel + 0.05);
+                    continue;
+                }
+
                 if (drone.status == DroneStatus::Crashed) continue;
 
+                // Automatic Low Battery Landing
+                if (drone.status == DroneStatus::Flying && drone.batteryLevel < 15.0) {
+                    drone.status = DroneStatus::Landing;
+                    drone.navQueue.clear();
+                }
+
                 if (drone.batteryLevel > 0) {
-                    // Navigation Program (Thrust counteracts gravity to hover or move)
-                    if (!drone.navQueue.empty()) {
+                    // Controlled Landing logic
+                    if (drone.status == DroneStatus::Landing) {
+                        drone.vx = drone.vy = 0;
+                        drone.vz = -1.5; // Constant descent speed
+                    }
+                    // Navigation Program
+                    else if (!drone.navQueue.empty()) {
                         auto& target = drone.navQueue.front();
                         double tx = target.x;
                         double ty = target.y;
@@ -93,16 +112,23 @@ void SimulationEngine::run() {
                 drone.y += drone.vy * dt;
                 drone.z += drone.vz * dt;
 
-                // Add minor random noise to simulate GPS drift
-                drone.x += (rand() % 100 - 50) / 1000.0;
-                drone.y += (rand() % 100 - 50) / 1000.0;
-                drone.z += (rand() % 100 - 50) / 1000.0;
+                // Add noise only if flying (prevents jittering on ground)
+                if (drone.status == DroneStatus::Flying) {
+                    drone.x += (rand() % 100 - 50) / 1000.0;
+                    drone.y += (rand() % 100 - 50) / 1000.0;
+                    drone.z += (rand() % 100 - 50) / 1000.0;
+                }
 
-                // Check for terrain collision
-                double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
-                if (drone.z <= groundHeight) {
+                // Check for ground contact
+                if (drone.z <= groundHeight + 0.05) {
+                    // Drones crash if the vertical impact velocity is too high (e.g., free fall)
+                    // A controlled landing at -1.5 m/s is considered safe.
+                    if (std::abs(drone.vz) < 2.0) {
+                        drone.status = DroneStatus::Landed;
+                    } else {
+                        drone.status = DroneStatus::Crashed;
+                    }
                     drone.z = groundHeight;
-                    drone.status = DroneStatus::Crashed;
                     drone.vx = drone.vy = drone.vz = 0;
                 }
 
@@ -166,6 +192,17 @@ void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode m
         if (drone.id == id) {
             drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
             drone.navMode = mode;
+        }
+    }
+}
+
+void SimulationEngine::landDrone(int id) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id && drone.status == DroneStatus::Flying) {
+            drone.status = DroneStatus::Landing;
+            drone.navQueue.clear();
+            break;
         }
     }
 }

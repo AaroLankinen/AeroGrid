@@ -4,7 +4,9 @@
 enum class DroneStatus {
     Flying,
     Crashed,
-    Disconnected
+    Disconnected,
+    Landing,
+    Landed
 };
 
 enum class NavigationMode {
