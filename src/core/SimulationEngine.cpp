@@ -15,9 +15,11 @@ SimulationEngine::SimulationEngine(QObject* parent)
 void SimulationEngine::startSimulation() {
     if (m_running) return;
     m_running = true;
-    // Initialize drones at a safe altitude above the terrain
-    for(auto& drone : m_drones) {
-        drone.z = 50.0; // Set initial altitude to 50 units above ground
+    // Initialize drones at a safe altitude and spacing to avoid collision
+    for(size_t i = 0; i < m_drones.size(); ++i) {
+        m_drones[i].x = i * 10.0; // Provide horizontal spacing buffer
+        m_drones[i].y = 0.0;
+        m_drones[i].z = 50.0; // Set initial altitude to 50 units
     }
     m_workerThread = QThread::create([this] { run(); });
     m_workerThread->start();
@@ -66,6 +68,29 @@ void SimulationEngine::run() {
                 // Simulate battery drain
                 drone.batteryLevel -= 0.1;
                 if (drone.batteryLevel < 0) drone.batteryLevel = 0;
+            }
+
+            // Drone-to-drone collision detection: check all pairs
+            for (size_t i = 0; i < m_drones.size(); ++i) {
+                for (size_t j = i + 1; j < m_drones.size(); ++j) {
+                    auto& d1 = m_drones[i];
+                    auto& d2 = m_drones[j];
+                    
+                    if (d1.status == DroneStatus::Crashed || d2.status == DroneStatus::Crashed) 
+                        continue;
+
+                    double dx = d1.x - d2.x;
+                    double dy = d1.y - d2.y;
+                    double dz = d1.z - d2.z;
+                    double distSq = dx*dx + dy*dy + dz*dz;
+                    double minDist = d1.radius + d2.radius;
+
+                    if (distSq < (minDist * minDist)) {
+                        d1.status = d2.status = DroneStatus::Crashed;
+                        d1.vx = d1.vy = d1.vz = 0;
+                        d2.vx = d2.vy = d2.vz = 0;
+                    }
+                }
             }
         }
         emit simulationUpdated(); // Notify UI that data is ready
