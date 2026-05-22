@@ -24,6 +24,8 @@ set(GUI_SOURCES
     src/gui/MainWindow.h
     src/gui/TelemetryModel.cpp
     src/gui/TelemetryModel.h
+    src/gui/TerrainView.cpp
+    src/gui/TerrainView.h
 )
 
 # Main Application Executable

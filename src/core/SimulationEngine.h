@@ -16,6 +16,7 @@ public:
     
     // Thread-safe access to drone data for the UI
     std::vector<Drone> getDroneData();
+    const TerrainMap& getTerrain() const { return m_terrain; }
 
 signals:
     void simulationUpdated(); // Signal triggered when a frame is calculated

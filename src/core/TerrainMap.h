@@ -28,6 +28,10 @@ public:
         return m_heights[iy * m_width + ix];
     }
 
+    int getWidth() const { return m_width; }
+    int getHeight() const { return m_height; }
+    double getCellSize() const { return m_cellSize; }
+
 private:
     int m_width, m_height;
     double m_cellSize;
