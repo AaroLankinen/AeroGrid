@@ -7,6 +7,8 @@
 #include <QLabel>
 #include <QTableView>
 #include <QApplication>
+#include <QItemSelectionModel>
+#include <QSignalBlocker>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* centralWidget = new QWidget(this);
@@ -61,6 +63,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             terrainView, QOverload<>::of(&TerrainView::update));
             
     auto updateUI = [this, terrainView]() {
+        // Sync set -> table view selection visually
+        if (m_tableView->selectionModel()) {
+            QSignalBlocker blocker(m_tableView->selectionModel());
+            m_tableView->selectionModel()->clearSelection();
+            for (int i = 0; i < m_model->rowCount(); ++i) {
+                if (m_selectedIds.count(m_model->getDroneIdAt(i))) {
+                    m_tableView->selectionModel()->select(m_model->index(i, 0), 
+                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                }
+            }
+        }
         m_model->setSelectedIds(m_selectedIds);
         terrainView->setSelectedIds(m_selectedIds);
         if (m_selectedIds.empty()) {
@@ -76,16 +89,26 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         updateUI();
     });
 
-    connect(m_tableView, &QTableView::clicked, [=](const QModelIndex &index) {
-        int id = m_model->getDroneIdAt(index.row());
-        if (m_selectedIds.count(id) && !(QApplication::keyboardModifiers() & Qt::ControlModifier)) {
-            m_selectedIds.erase(id); // Deselect if already selected
-        } else if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
-            m_selectedIds.insert(id);
-        } else {
-            m_selectedIds = {id};
+    // Synchronize Table Selection -> internal set
+    // This handles Shift+Click (ranges) and Ctrl+Click (multi) automatically
+    connect(m_tableView->selectionModel(), &QItemSelectionModel::selectionChanged, 
+            [this, terrainView](const QItemSelection &selected, const QItemSelection &deselected) {
+        m_selectedIds.clear();
+        for (const auto& index : m_tableView->selectionModel()->selectedRows()) {
+            int id = m_model->getDroneIdAt(index.row());
+            if (id != -1) m_selectedIds.insert(id);
         }
-        updateUI();
+        
+        // Update Map and Model (without re-syncing the table selection)
+        m_model->setSelectedIds(m_selectedIds);
+        terrainView->setSelectedIds(m_selectedIds);
+        
+        if (m_selectedIds.empty()) {
+            m_selectionLabel->setText("No drones selected");
+        } else {
+            m_selectionLabel->setText(QString("%1 Drones Selected").arg(m_selectedIds.size()));
+        }
+        updateButtonStates();
     });
 
     connect(m_rtbBtn, &QPushButton::clicked, [=]() {

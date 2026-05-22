@@ -3,7 +3,9 @@
 #include <QFont>
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, QObject* parent) 
-    : QAbstractTableModel(parent), m_engine(engine) {}
+    : QAbstractTableModel(parent), m_engine(engine) {
+    m_cachedDrones = m_engine->getDroneData();
+}
 
 int TelemetryModel::rowCount(const QModelIndex&) const { 
     return m_cachedDrones.size(); 
@@ -77,11 +79,18 @@ QVariant TelemetryModel::headerData(int section, Qt::Orientation orientation, in
 }
 
 void TelemetryModel::updateModel() {
-    // 1. Fetch thread-safe copy from engine
-    m_cachedDrones = m_engine->getDroneData();
-    // 2. Notify the View that the layout has changed
-    beginResetModel();
-    endResetModel();
+    auto newDrones = m_engine->getDroneData();
+
+    // If the number of drones changed, we must reset the model to update the view's row count.
+    // Otherwise, use dataChanged to preserve selection state and scroll position.
+    if (newDrones.size() != m_cachedDrones.size()) {
+        beginResetModel();
+        m_cachedDrones = newDrones;
+        endResetModel();
+    } else if (!m_cachedDrones.empty()) {
+        m_cachedDrones = newDrones;
+        emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+    }
 }
 
 void TelemetryModel::setSelectedIds(const std::set<int>& ids) {
