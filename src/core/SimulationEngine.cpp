@@ -169,3 +169,26 @@ void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode m
         }
     }
 }
+
+void SimulationEngine::clearNavQueue(int id) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id) {
+            drone.navQueue.clear();
+            drone.vx = drone.vy = drone.vz = 0; // Stop moving
+            break;
+        }
+    }
+}
+
+void SimulationEngine::removeNavPoint(int id, int index) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (auto& drone : m_drones) {
+        if (drone.id == id) {
+            if (index >= 0 && index < (int)drone.navQueue.size()) {
+                drone.navQueue.erase(drone.navQueue.begin() + index);
+            }
+            break;
+        }
+    }
+}

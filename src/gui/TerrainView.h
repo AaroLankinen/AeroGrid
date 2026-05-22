@@ -16,6 +16,7 @@ protected:
 signals:
     void droneSelected(int id);
     void mapTargetSet(double worldX, double worldY);
+    void navPointClicked(int droneId, int pointIndex);
 
 private:
     void renderTerrainCache();

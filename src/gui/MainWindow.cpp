@@ -30,10 +30,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto* selectionLabel = new QLabel("Select a drone on the map", this);
 
+    auto* clearQueueBtn = new QPushButton("Clear Selected Queue", this);
+
     leftLayout->addWidget(m_tableView);
     leftLayout->addWidget(selectionLabel);
     leftLayout->addWidget(new QLabel("Flight Mode:"));
     leftLayout->addWidget(modeSelector);
+    leftLayout->addWidget(clearQueueBtn);
     leftLayout->addWidget(startBtn);
 
     auto* terrainView = new TerrainView(&m_engine, this);
@@ -52,6 +55,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             NavigationMode mode = static_cast<NavigationMode>(modeSelector->currentData().toInt());
             m_engine.assignTarget(currentSelectedId, x, y, mode);
         }
+    });
+
+
+    connect(clearQueueBtn, &QPushButton::clicked, [=]() {
+        if (currentSelectedId != -1) {
+            m_engine.clearNavQueue(currentSelectedId);
+        }
+    });
+
+    connect(terrainView, &TerrainView::navPointClicked, [=](int droneId, int index) {
+        m_engine.removeNavPoint(droneId, index);
     });
 
     layout->addLayout(leftLayout);

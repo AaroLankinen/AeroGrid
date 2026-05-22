@@ -33,7 +33,13 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
         case 5: // Drone Status
             // Convert enum to human-readable string
             switch (drone.status) {
-                case DroneStatus::Flying: return "Flying";
+                case DroneStatus::Flying: 
+                    if (!drone.navQueue.empty()) {
+                        const auto& next = drone.navQueue.front();
+                        return QString("Moving to (%1, %2)")
+                            .arg(next.x, 0, 'f', 1).arg(next.y, 0, 'f', 1);
+                    }
+                    return "Maintaining position";
                 case DroneStatus::Crashed: return "Crashed";
                 case DroneStatus::Disconnected: return "Disconnected";
                 default: return "Unknown";

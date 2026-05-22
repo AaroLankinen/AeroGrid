@@ -36,8 +36,22 @@ void TerrainView::mousePressEvent(QMouseEvent* event) {
     double worldY = (static_cast<double>(event->y()) / height() * terrain.getHeight() - terrain.getHeight() / 2.0) * terrain.getCellSize();
 
     if (event->button() == Qt::LeftButton) {
-        // Selection logic
         auto drones = m_engine->getDroneData();
+        
+        // First check if user clicked on a navigation point of a drone
+        for (const auto& drone : drones) {
+            for (int i = 0; i < (int)drone.navQueue.size(); ++i) {
+                const auto& pt = drone.navQueue[i];
+                double dx = pt.x - worldX;
+                double dy = pt.y - worldY;
+                if (std::sqrt(dx*dx + dy*dy) < 3.0) { // 3m hit box for path points
+                    emit navPointClicked(drone.id, i);
+                    return;
+                }
+            }
+        }
+
+        // If no point clicked, try selecting a drone
         m_selectedDroneId = -1;
         for (const auto& drone : drones) {
             double dx = drone.x - worldX;

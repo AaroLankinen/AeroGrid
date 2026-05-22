@@ -19,6 +19,8 @@ public:
     const TerrainMap& getTerrain() const { return m_terrain; }
     
     void assignTarget(int id, double x, double y, NavigationMode mode);
+    void clearNavQueue(int id);
+    void removeNavPoint(int id, int index);
 
 signals:
     void simulationUpdated(); // Signal triggered when a frame is calculated
