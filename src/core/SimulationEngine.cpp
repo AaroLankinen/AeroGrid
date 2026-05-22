@@ -52,17 +52,27 @@ void SimulationEngine::run() {
 
                 if (drone.status == DroneStatus::Crashed) continue;
 
-                // Automatic Low Battery Landing
-                if (drone.status == DroneStatus::Flying && drone.batteryLevel < 15.0) {
-                    drone.status = DroneStatus::Landing;
+                double altitudeAGL = std::max(0.0, drone.z - groundHeight);
+                // Calculate battery needed for a safe descent.
+                // Aggressive descent at 5m/s (2.0%/s cost) until 5m AGL, then 1.5m/s (1.3%/s cost).
+                double t_fast = std::max(0.0, (altitudeAGL - 5.0) / 5.0);
+                double t_slow = std::min(altitudeAGL, 5.0) / 1.5;
+                double batteryRequiredToLand = (t_fast * 2.0) + (t_slow * 1.3) + 5.0; // 5% safety margin
+
+                if (drone.status == DroneStatus::Flying && drone.batteryLevel <= batteryRequiredToLand) {
+                    drone.status = DroneStatus::EmergencyLanding;
                     drone.navQueue.clear();
                 }
 
                 if (drone.batteryLevel > 0) {
-                    // Controlled Landing logic
-                    if (drone.status == DroneStatus::Landing) {
+                    // Landing logic (User-initiated or Emergency)
+                    if (drone.status == DroneStatus::Landing || drone.status == DroneStatus::EmergencyLanding) {
                         drone.vx = drone.vy = 0;
-                        drone.vz = -1.5; // Constant descent speed
+                        if (altitudeAGL > 5.0) {
+                            drone.vz = -5.0; // Aggressive altitude shed
+                        } else {
+                            drone.vz = -1.5; // Final safe approach
+                        }
                     }
                     // Navigation Program
                     else if (!drone.navQueue.empty()) {

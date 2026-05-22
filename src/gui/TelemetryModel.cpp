@@ -18,7 +18,14 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
 
     if (role == Qt::BackgroundRole) {
         if (drone.status == DroneStatus::Crashed) return QBrush(QColor(255, 200, 200)); // Light Red
-        if (drone.batteryLevel < 20.0) return QBrush(QColor(255, 230, 150)); // Light Orange/Yellow
+
+        double groundHeight = m_engine->getTerrain().getHeightAt(drone.x, drone.y);
+        double altitudeAGL = std::max(0.0, drone.z - groundHeight);
+        double t_fast = std::max(0.0, (altitudeAGL - 5.0) / 5.0);
+        double t_slow = std::min(altitudeAGL, 5.0) / 1.5;
+        double batteryRequiredToLand = (t_fast * 2.0) + (t_slow * 1.3) + 5.0;
+
+        if (drone.batteryLevel < batteryRequiredToLand) return QBrush(QColor(255, 230, 150)); // Light Orange/Yellow
         return QVariant();
     }
 
@@ -42,7 +49,8 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
                     return "Maintaining position";
                 case DroneStatus::Crashed: return "Crashed";
                 case DroneStatus::Disconnected: return "Disconnected";
-                case DroneStatus::Landing: return "Landing...";
+                case DroneStatus::Landing: return "Landing (User)";
+                case DroneStatus::EmergencyLanding: return "Landing (Emergency)";
                 case DroneStatus::Landed: return "Landed (Charging)";
                 default: return "Unknown";
             }

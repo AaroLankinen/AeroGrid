@@ -6,6 +6,7 @@ enum class DroneStatus {
     Crashed,
     Disconnected,
     Landing,
+    EmergencyLanding,
     Landed
 };
 
