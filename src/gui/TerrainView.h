@@ -11,6 +11,7 @@ class TerrainView : public QWidget {
 public:
     explicit TerrainView(SimulationEngine* engine, QWidget* parent = nullptr);
     void setSelectedIds(const std::set<int>& ids);
+    void renderTerrainCache();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -24,7 +25,6 @@ signals:
     void navPointClicked(int droneId, int pointIndex);
 
 private:
-    void renderTerrainCache();
     QImage m_terrainCache;
     SimulationEngine* m_engine;
     std::set<int> m_selectedIds;

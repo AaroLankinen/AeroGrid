@@ -15,6 +15,7 @@ find_package(Qt6 COMPONENTS Core Gui Widgets Test REQUIRED)
 # Define source groups for clarity as the project grows
 set(CORE_SOURCES
     src/core/SimulationEngine.cpp
+    src/core/TerrainMap.cpp
     src/core/SimulationEngine.h
     src/core/Drone.h
 )
@@ -43,6 +44,7 @@ enable_testing()
 add_executable(AeroGridTests 
     tests/TestAeroGrid.cpp
     src/core/SimulationEngine.cpp
+    src/core/TerrainMap.cpp
     src/gui/TelemetryModel.cpp
 )
 

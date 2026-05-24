@@ -23,9 +23,16 @@ void TerrainView::renderTerrainCache() {
             double worldY = (y - h/2.0) * terrain.getCellSize();
             double height = terrain.getHeightAt(worldX, worldY);
             
-            // Heatmap color: Green for low altitude, Brown/White for hills
-            int val = qBound(0, static_cast<int>(height * 10), 255);
-            m_terrainCache.setPixel(x, y, qRgb(val, 150 + val/2, 50));
+            // Procedural Interpretation: Low heights represent water features
+            if (height < 1.0) {
+                // Water (Lakes / Rivers)
+                int blueVal = qBound(150, 200 + static_cast<int>(height * 20), 255);
+                m_terrainCache.setPixel(x, y, qRgb(20, 60, blueVal));
+            } else {
+                // Land (Plains to Peaks)
+                int val = qBound(0, static_cast<int>((height - 1.0) * 12), 255);
+                m_terrainCache.setPixel(x, y, qRgb(val, 150 + val / 2, 50));
+            }
         }
     }
 }

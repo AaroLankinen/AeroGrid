@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 #include "TerrainView.h"
+#include <QRandomGenerator>
+#include <QLineEdit>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPushButton>
@@ -26,9 +28,20 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(&m_engine, &SimulationEngine::simulationUpdated, 
             m_model, &TelemetryModel::updateModel);
 
+    // Seed Control
+    auto* seedLayout = new QHBoxLayout();
+    auto* seedInput = new QLineEdit(this);
+    seedInput->setPlaceholderText("Map Seed (Numeric)");
+    seedInput->setText(QString::number(12345));
+    auto* randSeedBtn = new QPushButton("🎲", this);
+    seedLayout->addWidget(new QLabel("Seed:"));
+    seedLayout->addWidget(seedInput);
+    seedLayout->addWidget(randSeedBtn);
+
     // Control buttons
     auto* startBtn = new QPushButton("Start Simulation", this);
-    connect(startBtn, &QPushButton::clicked, &m_engine, &SimulationEngine::startSimulation);
+    
+    auto* terrainView = new TerrainView(&m_engine, this);
 
     m_modeSelector = new QComboBox(this);
     m_modeSelector->addItem("Max Altitude", static_cast<int>(NavigationMode::MaxAltitude));
@@ -46,6 +59,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_rtbBtn = new QPushButton("Return to Base", this);
 
     leftLayout->addWidget(m_tableView);
+    leftLayout->addLayout(seedLayout);
     leftLayout->addWidget(m_selectionLabel);
     leftLayout->addWidget(new QLabel("Flight Mode:"));
     leftLayout->addWidget(m_modeSelector);
@@ -55,9 +69,24 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     leftLayout->addWidget(m_rtbBtn);
     leftLayout->addWidget(startBtn);
 
+    // Connections for Seed and Start
+    connect(randSeedBtn, &QPushButton::clicked, [=]() {
+        seedInput->setText(QString::number(QRandomGenerator::global()->generate() % 999999));
+    });
+
+    connect(startBtn, &QPushButton::clicked, [this, seedInput, terrainView]() {
+        unsigned int seed = seedInput->text().toUInt();
+        if (seed == 0 && seedInput->text() != "0") seed = 12345;
+        
+        m_engine.startSimulation(seed);
+        
+        // Force the terrain view to re-draw its procedural cache for the new seed
+        terrainView->renderTerrainCache();
+        terrainView->update();
+    });
+
     updateButtonStates();
 
-    auto* terrainView = new TerrainView(&m_engine, this);
     // Trigger a repaint of the map whenever simulation data changes
     connect(&m_engine, &SimulationEngine::simulationUpdated, 
             terrainView, QOverload<>::of(&TerrainView::update));

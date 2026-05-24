@@ -16,7 +16,7 @@ class SimulationEngine : public QObject {
     Q_OBJECT
 public:
     explicit SimulationEngine(QObject* parent = nullptr);
-    void startSimulation();
+    void startSimulation(unsigned int seed);
     void stopSimulation();
     
     // Thread-safe access to drone data for the UI
@@ -47,6 +47,8 @@ private:
     std::vector<DynamicObstacle> m_dynamicObstacles;
     std::mutex m_mutex;       // Protects m_drones during thread access
     std::atomic<bool> m_running;
+    double m_baseX;           // Randomized base X coordinate
+    double m_baseY;           // Randomized base Y coordinate
     TerrainMap m_terrain;
     QThread* m_workerThread = nullptr;
 };

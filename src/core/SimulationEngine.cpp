@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
+#include <cmath>
 
 SimulationEngine::SimulationEngine(QObject* parent) 
     : QObject(parent), m_running(false), m_workerThread(nullptr) {
@@ -11,22 +12,62 @@ SimulationEngine::SimulationEngine(QObject* parent)
     for(int i = 0; i < 5; ++i) m_drones.emplace_back(i);
     std::srand(std::time(nullptr)); // Seed random for GPS drift
 
-    // Initialize some dynamic obstacles (Birds/Unauthorized Drones)
-    // Moving at ~3 m/s in various directions
-    m_dynamicObstacles.push_back({100, -50.0, 50.0, 25.0, 3.0, 2.0, 0.0, 1.5});
-    m_dynamicObstacles.push_back({101, 40.0, -60.0, 30.0, -2.0, 3.5, 0.5, 2.0});
-    m_dynamicObstacles.push_back({102, 0.0, 80.0, 40.0, 4.0, -1.0, -0.2, 1.2});
+    // 1. Initialize semi-random base location near the map center
+    // This must happen before drones or signal logic are initialized
+    m_baseX = (std::rand() % 40) - 20.0;
+    m_baseY = (std::rand() % 40) - 20.0;
+
+    // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)
+    m_dynamicObstacles.clear();
+    int obstacleCount = 3 + (std::rand() % 4);
+    for (int i = 0; i < obstacleCount; ++i) {
+        m_dynamicObstacles.push_back({
+            100 + i,                            // ID
+            (double)(std::rand() % 160 - 80),    // X
+            (double)(std::rand() % 160 - 80),    // Y
+            (double)(std::rand() % 40 + 20),     // Z (Initial Altitude)
+            (double)(std::rand() % 6 - 3),       // VX
+            (double)(std::rand() % 6 - 3),       // VY
+            (double)(std::rand() % 4 - 2) * 0.1, // VZ
+            1.0 + (std::rand() % 200) / 100.0    // Radius
+        });
+    }
 }
 
-void SimulationEngine::startSimulation() {
+void SimulationEngine::startSimulation(unsigned int seed) {
     if (m_running) return;
+    
+    // Re-initialize terrain with the provided seed
+    m_terrain = TerrainMap(seed);
+    std::srand(seed); 
+
+    // Ensure base location is on land (Height >= 1.0)
+    do {
+        m_baseX = (std::rand() % 40) - 20.0;
+        m_baseY = (std::rand() % 40) - 20.0;
+    } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
+
     m_running = true;
-    // Initialize drones at a safe altitude and spacing to avoid collision
+
+    // 3. Randomize Drone Spawns close to base with a safety buffer
     for(size_t i = 0; i < m_drones.size(); ++i) {
-        m_drones[i].x = i * 10.0; // Provide horizontal spacing buffer
-        m_drones[i].y = 0.0;
-        m_drones[i].z = 50.0; // Set initial altitude to 50 units
+        // Spawn in a ring around the base to ensure a clear buffer zone
+        double angle = (2.0 * 3.14159 * i) / m_drones.size();
+        double r = 10.0 + (std::rand() % 5); 
+        
+        m_drones[i].x = m_baseX + r * std::cos(angle);
+        m_drones[i].y = m_baseY + r * std::sin(angle);
+        
+        // Spawn drones above the local ground height
+        double groundH = m_terrain.getHeightAt(m_drones[i].x, m_drones[i].y);
+        m_drones[i].z = groundH + 15.0; 
+        
+        m_drones[i].status = DroneStatus::Flying;
+        m_drones[i].vx = m_drones[i].vy = m_drones[i].vz = 0;
+        m_drones[i].batteryLevel = 100.0;
+        m_drones[i].navQueue.clear();
     }
+
     m_workerThread = QThread::create([this] { run(); });
     m_workerThread->start();
 }
@@ -166,7 +207,10 @@ void SimulationEngine::run() {
                     double safeZone = minDist + obsSafetyMargin;
 
                     // Only worry about obstacles if we are below their top (plus a margin)
-                    if (drone.z < obs.height + 2.0) {
+                    // 4. Buildings rest upon the ground: calculate absolute height
+                    double obsGroundHeight = m_terrain.getHeightAt(obs.x, obs.y);
+                    double absoluteObsHeight = obsGroundHeight + obs.height;
+                    if (drone.z < absoluteObsHeight + 2.0) {
                         if (dist2D < safeZone && dist2D > 0.001) {
                             drone.proximityAlert = true;
 
@@ -182,7 +226,7 @@ void SimulationEngine::run() {
                         }
 
                         // Hard Collision with static obstacle
-                        if (dist2D < minDist && drone.z < obs.height) {
+                        if (dist2D < minDist && drone.z < absoluteObsHeight) {
                             drone.status = DroneStatus::Crashed;
                             drone.vx = drone.vy = drone.vz = 0;
                             // Nudge slightly outside to prevent continuous collision
@@ -250,10 +294,14 @@ void SimulationEngine::run() {
                     drone.vx = drone.vy = drone.vz = 0;
                 }
 
-                // Signal strength simulation (linear decay from origin)
-                double distToOrigin = std::sqrt(drone.x * drone.x + drone.y * drone.y + drone.z * drone.z);
-                const double maxRange = 500.0;
-                drone.signalStrength = std::max(0.0, 1.0 - (distToOrigin / maxRange));
+                // Signal strength simulation (linear decay from the randomized base)
+                double sDx = drone.x - m_baseX;
+                double sDy = drone.y - m_baseY;
+                double sDz = drone.z; // Height also affects signal
+                double distToBase = std::sqrt(sDx*sDx + sDy*sDy + sDz*sDz);
+                
+                const double maxRange = 300.0; // Reduced range for more realism
+                drone.signalStrength = std::max(0.0, 1.0 - (distToBase / maxRange));
 
                 if (drone.batteryLevel < 0) drone.batteryLevel = 0;
             }
@@ -357,7 +405,7 @@ void SimulationEngine::returnToBase(int id) {
     for (auto& drone : m_drones) {
         if (drone.id == id && drone.status == DroneStatus::Flying) {
             drone.navQueue.clear();
-            drone.navQueue.push_back({0.0, 0.0, 0.0});
+            drone.navQueue.push_back({m_baseX, m_baseY, 0.0});
             drone.returningToBase = true;
             break;
         }
