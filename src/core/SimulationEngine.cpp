@@ -41,33 +41,21 @@ void SimulationEngine::startSimulation(unsigned int seed) {
     m_terrain = TerrainMap(seed);
     std::srand(seed); 
 
+    m_drones.clear();
+    m_baseInventory.clear();
+
     // Ensure base location is on land (Height >= 1.0)
     do {
         m_baseX = (std::rand() % 40) - 20.0;
         m_baseY = (std::rand() % 40) - 20.0;
     } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
 
-    m_running = true;
-
-    // 3. Randomize Drone Spawns close to base with a safety buffer
-    for(size_t i = 0; i < m_drones.size(); ++i) {
-        // Spawn in a ring around the base to ensure a clear buffer zone
-        double angle = (2.0 * 3.14159 * i) / m_drones.size();
-        double r = 10.0 + (std::rand() % 5); 
-        
-        m_drones[i].x = m_baseX + r * std::cos(angle);
-        m_drones[i].y = m_baseY + r * std::sin(angle);
-        
-        // Spawn drones above the local ground height
-        double groundH = m_terrain.getHeightAt(m_drones[i].x, m_drones[i].y);
-        m_drones[i].z = groundH + 15.0; 
-        
-        m_drones[i].status = DroneStatus::Flying;
-        m_drones[i].vx = m_drones[i].vy = m_drones[i].vz = 0;
-        m_drones[i].batteryLevel = 100.0;
-        m_drones[i].navQueue.clear();
+    // 3. Initialize Hangar with 12 drones
+    for(int i = 0; i < 12; ++i) {
+        m_baseInventory.emplace_back(i);
     }
 
+    m_running = true;
     m_workerThread = QThread::create([this] { run(); });
     m_workerThread->start();
 }
@@ -79,6 +67,27 @@ void SimulationEngine::stopSimulation() {
         m_workerThread->wait();
         m_workerThread->deleteLater();
         m_workerThread = nullptr;
+    }
+}
+
+void SimulationEngine::processHangarLogic() {
+    auto it = m_drones.begin();
+    while (it != m_drones.end()) {
+        // If a drone has returned to base and landed, move it to inventory
+        if (it->status == DroneStatus::Landed && it->returningToBase) {
+            double dx = it->x - m_baseX;
+            double dy = it->y - m_baseY;
+            double dist = std::sqrt(dx*dx + dy*dy);
+            
+            if (dist < 5.0) { // Within 5m of helipad center
+                it->returningToBase = false;
+                it->navQueue.clear();
+                m_baseInventory.push_back(*it);
+                it = m_drones.erase(it);
+                continue;
+            }
+        }
+        ++it;
     }
 }
 
@@ -99,6 +108,14 @@ void SimulationEngine::run() {
                 if (std::abs(obs.x) > 90.0) obs.vx *= -1;
                 if (std::abs(obs.y) > 90.0) obs.vy *= -1;
                 if (obs.z < 10.0 || obs.z > 60.0) obs.vz *= -1;
+            }
+
+            // 1. Process Hangar/RTB transitions
+            processHangarLogic();
+
+            // 2. Fast charging for drones in Hangar
+            for (auto& drone : m_baseInventory) {
+                drone.batteryLevel = std::min(100.0, drone.batteryLevel + 0.5); // 10x field rate
             }
 
             for (auto& drone : m_drones) {
@@ -369,6 +386,56 @@ std::vector<Drone> SimulationEngine::getDroneData() {
 std::vector<DynamicObstacle> SimulationEngine::getDynamicObstacleData() {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_dynamicObstacles;
+}
+
+std::vector<Drone> SimulationEngine::getInventoryData() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_baseInventory;
+}
+
+int SimulationEngine::getInventoryCount() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return (int)m_baseInventory.size();
+}
+
+void SimulationEngine::launchDrone() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_baseInventory.empty()) return;
+
+    Drone d = m_baseInventory.back();
+    m_baseInventory.pop_back();
+
+    // Place drone on the helipad
+    d.x = m_baseX;
+    d.y = m_baseY;
+    d.z = m_terrain.getHeightAt(m_baseX, m_baseY);
+    d.status = DroneStatus::Landed;
+    d.vx = d.vy = d.vz = 0;
+    
+    m_drones.push_back(d);
+}
+
+void SimulationEngine::launchDrones(const std::vector<int>& ids) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (int id : ids) {
+        auto it = std::find_if(m_baseInventory.begin(), m_baseInventory.end(), [id](const Drone& d) {
+            return d.id == id;
+        });
+
+        if (it != m_baseInventory.end()) {
+            Drone d = *it;
+            m_baseInventory.erase(it);
+
+            // Place drone on the helipad
+            d.x = m_baseX;
+            d.y = m_baseY;
+            d.z = m_terrain.getHeightAt(m_baseX, m_baseY);
+            d.status = DroneStatus::Landed;
+            d.vx = d.vy = d.vz = 0;
+            
+            m_drones.push_back(d);
+        }
+    }
 }
 
 void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode mode) {

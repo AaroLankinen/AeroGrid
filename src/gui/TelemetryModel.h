@@ -3,6 +3,8 @@
 #include "SimulationEngine.h"
 #include <set>
 
+enum class DroneListType { Deployed, Hangar };
+
 /**
  * @brief Custom TableModel for displaying real-time drone telemetry.
  * 
@@ -11,7 +13,7 @@
 class TelemetryModel : public QAbstractTableModel {
     Q_OBJECT
 public:
-    explicit TelemetryModel(SimulationEngine* engine, QObject* parent = nullptr);
+    explicit TelemetryModel(SimulationEngine* engine, DroneListType type, QObject* parent = nullptr);
 
     int rowCount(const QModelIndex& parent = QModelIndex()) const override;
     int columnCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -33,4 +35,5 @@ private:
     SimulationEngine* m_engine;
     std::vector<Drone> m_cachedDrones;
     std::set<int> m_selectedIds;
+    DroneListType m_type;
 };

@@ -2,9 +2,10 @@
 #include <QBrush>
 #include <QFont>
 
-TelemetryModel::TelemetryModel(SimulationEngine* engine, QObject* parent) 
-    : QAbstractTableModel(parent), m_engine(engine) {
-    m_cachedDrones = m_engine->getDroneData();
+TelemetryModel::TelemetryModel(SimulationEngine* engine, DroneListType type, QObject* parent) 
+    : QAbstractTableModel(parent), m_engine(engine), m_type(type) {
+    if (m_type == DroneListType::Deployed) m_cachedDrones = m_engine->getDroneData();
+    else m_cachedDrones = m_engine->getInventoryData();
 }
 
 int TelemetryModel::rowCount(const QModelIndex&) const { 
@@ -47,6 +48,8 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
         case 3: return QString::number(drone.z, 'f', 2); // Z position (altitude)
         case 4: return QString::number(drone.batteryLevel, 'f', 1) + "%"; // Battery Level
         case 5: // Drone Status
+            if (m_type == DroneListType::Hangar) return "In hangar, charging";
+
             // Convert enum to human-readable string
             switch (drone.status) {
                 case DroneStatus::Flying: 
@@ -81,7 +84,9 @@ QVariant TelemetryModel::headerData(int section, Qt::Orientation orientation, in
 }
 
 void TelemetryModel::updateModel() {
-    auto newDrones = m_engine->getDroneData();
+    std::vector<Drone> newDrones;
+    if (m_type == DroneListType::Deployed) newDrones = m_engine->getDroneData();
+    else newDrones = m_engine->getInventoryData();
 
     // If the number of drones changed, we must reset the model to update the view's row count.
     // Otherwise, use dataChanged to preserve selection state and scroll position.

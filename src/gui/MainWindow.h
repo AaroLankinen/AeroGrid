@@ -18,9 +18,13 @@ private:
 
     SimulationEngine m_engine;
     TelemetryModel* m_model;
+    TelemetryModel* m_hangarModel;
     QTableView* m_tableView;
+    QTableView* m_hangarTableView;
 
     std::set<int> m_selectedIds;
+    std::set<int> m_selectedHangarIds;
+    QPushButton* m_launchBtn;
     QPushButton* m_clearQueueBtn;
     QPushButton* m_landBtn;
     QPushButton* m_takeOffBtn;

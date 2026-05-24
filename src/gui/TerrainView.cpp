@@ -142,8 +142,15 @@ void TerrainView::paintEvent(QPaintEvent*) {
         return QPointF(sx, sy);
     };
 
-    // Draw Static Obstacles
-    painter.setBrush(QColor(100, 100, 100, 200)); // Semi-transparent gray
+    // Draw Base (Helipad)
+    QPointF basePos = worldToScreen(m_engine->getBaseX(), m_engine->getBaseY());
+    painter.setPen(QPen(Qt::white, 2));
+    painter.setBrush(Qt::darkGray);
+    painter.drawEllipse(basePos, 15, 15);
+    painter.drawText(QRectF(basePos.x()-10, basePos.y()-10, 20, 20), Qt::AlignCenter, "H");
+
+    // Draw Static Obstacles (High Contrast Red)
+    painter.setBrush(QColor(255, 0, 0, 180)); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : terrain.getObstacles()) {
         QPointF screenPos = worldToScreen(obs.x, obs.y);
@@ -151,9 +158,9 @@ void TerrainView::paintEvent(QPaintEvent*) {
         painter.drawEllipse(screenPos, screenRadius, screenRadius);
     }
 
-    // Draw Dynamic Obstacles (e.g., Birds/Other Aircraft)
-    painter.setBrush(QColor(255, 0, 255, 180)); // Semi-transparent magenta
-    painter.setPen(QPen(Qt::darkMagenta, 1));
+    // Draw Dynamic Obstacles (High Contrast Orange)
+    painter.setBrush(QColor(255, 140, 0, 200)); 
+    painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : m_engine->getDynamicObstacleData()) {
         QPointF screenPos = worldToScreen(obs.x, obs.y);
         float screenRadius = (obs.radius / terrain.getCellSize()) * width() / terrain.getWidth();

@@ -17,16 +17,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* layout = new QHBoxLayout(centralWidget);
     auto* leftLayout = new QVBoxLayout();
 
+    leftLayout->addWidget(new QLabel("<b>Deployed Drones (Active)</b>", this));
     m_tableView = new QTableView(this);
-    m_model = new TelemetryModel(&m_engine, this);
+    m_model = new TelemetryModel(&m_engine, DroneListType::Deployed, this);
     m_tableView->setModel(m_model);
     m_tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    // CRITICAL: Connect the Engine's signal to the Model's update slot
-    connect(&m_engine, &SimulationEngine::simulationUpdated, 
-            m_model, &TelemetryModel::updateModel);
+    leftLayout->addWidget(new QLabel("<b>Hangar Inventory (Stored)</b>", this));
+    m_hangarTableView = new QTableView(this);
+    m_hangarModel = new TelemetryModel(&m_engine, DroneListType::Hangar, this);
+    m_hangarTableView->setModel(m_hangarModel);
+    m_hangarTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_hangarTableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_hangarTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_hangarTableView->setMaximumHeight(150);
 
     // Seed Control
     auto* seedLayout = new QHBoxLayout();
@@ -53,6 +59,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_selectionLabel = new QLabel("No drones selected", this);
 
+    m_launchBtn = new QPushButton("Launch Drone (12 Available)", this);
     m_clearQueueBtn = new QPushButton("Clear Selected Queue", this);
     m_landBtn = new QPushButton("Land Drone", this);
     m_takeOffBtn = new QPushButton("Take Off", this);
@@ -63,11 +70,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     leftLayout->addWidget(m_selectionLabel);
     leftLayout->addWidget(new QLabel("Flight Mode:"));
     leftLayout->addWidget(m_modeSelector);
+    leftLayout->addWidget(m_launchBtn);
     leftLayout->addWidget(m_clearQueueBtn);
     leftLayout->addWidget(m_landBtn);
     leftLayout->addWidget(m_takeOffBtn);
     leftLayout->addWidget(m_rtbBtn);
     leftLayout->addWidget(startBtn);
+    leftLayout->addWidget(m_hangarTableView);
 
     // Connections for Seed and Start
     connect(randSeedBtn, &QPushButton::clicked, [=]() {
@@ -87,9 +96,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     updateButtonStates();
 
-    // Trigger a repaint of the map whenever simulation data changes
-    connect(&m_engine, &SimulationEngine::simulationUpdated, 
-            terrainView, QOverload<>::of(&TerrainView::update));
+    // Combined signal to update UI components every frame
+    connect(&m_engine, &SimulationEngine::simulationUpdated, [this, terrainView]() {
+        terrainView->update();
+        m_model->updateModel();
+        m_hangarModel->updateModel();
+        int count = m_engine.getInventoryCount();
+        m_launchBtn->setText(QString("Launch Drone (%1 Available)").arg(count));
+        m_launchBtn->setEnabled(count > 0);
+    });
+
+    connect(m_launchBtn, &QPushButton::clicked, [this]() {
+        if (m_selectedHangarIds.empty()) {
+            m_engine.launchDrone();
+        } else {
+            std::vector<int> ids(m_selectedHangarIds.begin(), m_selectedHangarIds.end());
+            m_engine.launchDrones(ids);
+            m_selectedHangarIds.clear();
+        }
+    });
             
     auto updateUI = [this, terrainView]() {
         // Sync set -> table view selection visually
@@ -138,6 +163,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             m_selectionLabel->setText(QString("%1 Drones Selected").arg(m_selectedIds.size()));
         }
         updateButtonStates();
+    });
+
+    // Synchronize Hangar Table Selection -> internal set
+    connect(m_hangarTableView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            [this]() {
+        m_selectedHangarIds.clear();
+        for (const auto& index : m_hangarTableView->selectionModel()->selectedRows()) {
+            int id = m_hangarModel->getDroneIdAt(index.row());
+            if (id != -1) m_selectedHangarIds.insert(id);
+        }
+        m_hangarModel->setSelectedIds(m_selectedHangarIds);
     });
 
     connect(m_rtbBtn, &QPushButton::clicked, [=]() {
