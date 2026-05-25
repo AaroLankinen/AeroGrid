@@ -26,15 +26,39 @@ TerrainMap::TerrainMap(unsigned int seed, double landProp)
     m_permutation.insert(m_permutation.end(), m_permutation.begin(), m_permutation.end());
 
     // Procedural Static Obstacle Spawning
-    std::srand(seed + 1); // Use a derived seed for obstacles
+    std::srand(seed + 1); 
     for (int i = 0; i < 10; ++i) {
-        double ox = (std::rand() % 160) - 80.0;
-        double oy = (std::rand() % 160) - 80.0;
-        double radius = 3.0 + (std::rand() % 500) / 100.0;
+        double ox, oy, radius;
+        bool valid;
+        int attempts = 0;
+        do {
+            valid = true;
+            ox = (std::rand() % 160) - 80.0;
+            oy = (std::rand() % 160) - 80.0;
+            radius = 3.0 + (std::rand() % 500) / 100.0;
+
+            // 1. Helipad Safety Zone: Keep buildings away from the central area 
+            // where the base is generated (usually within [-20, 20]).
+            if (std::abs(ox) < 35.0 && std::abs(oy) < 35.0) {
+                valid = false;
+            }
+
+            // 2. Obstacle-to-Obstacle overlap check
+            if (valid) {
+                for (const auto& existing : m_staticObstacles) {
+                    double dx = ox - existing.x;
+                    double dy = oy - existing.y;
+                    double dist = std::sqrt(dx*dx + dy*dy);
+                    // Maintain a minimum separation based on radii plus a safety buffer
+                    if (dist < (radius + existing.radius + 5.0)) {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+        } while (!valid && ++attempts < 50);
+
         double height = 10.0 + (std::rand() % 20);
-        
-        // Buildings are added with their center coordinates.
-        // SimulationEngine uses these along with groundHeight to ensure they rest upon the ground.
         m_staticObstacles.push_back({i, ox, oy, radius, height});
     }
 

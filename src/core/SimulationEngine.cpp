@@ -5,6 +5,7 @@
 #include <ctime>
 #include <mutex>
 #include <cmath>
+#include <algorithm>
 
 SimulationEngine::SimulationEngine(QObject* parent) 
     : QObject(parent), m_running(false), m_workerThread(nullptr) {
@@ -82,7 +83,11 @@ void SimulationEngine::processHangarLogic() {
             if (dist < 10.0) { // Within 10m of helipad center (accommodates grid landing)
                 it->returningToBase = false;
                 it->navQueue.clear();
-                m_baseInventory.push_back(*it);
+                
+                // Maintain sorted order by ID when returning to inventory
+                auto insertPos = std::lower_bound(m_baseInventory.begin(), m_baseInventory.end(), *it,
+                    [](const Drone& a, const Drone& b) { return a.id < b.id; });
+                m_baseInventory.insert(insertPos, *it);
                 it = m_drones.erase(it);
                 continue;
             }
@@ -186,7 +191,6 @@ void SimulationEngine::run() {
                         drone.navQueue.erase(drone.navQueue.begin());
                         if (drone.returningToBase && drone.navQueue.empty()) {
                             drone.status = DroneStatus::Landing;
-                            drone.returningToBase = false;
                         }
                         drone.vx = drone.vy = drone.vz = 0; // Hover
                     }

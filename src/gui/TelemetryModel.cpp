@@ -3,7 +3,8 @@
 #include <QFont>
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, DroneListType type, QObject* parent) 
-    : QAbstractTableModel(parent), m_engine(engine), m_type(type) {
+    : QAbstractTableModel(parent), m_engine(engine), m_type(type), 
+      m_sortColumn(-1), m_sortOrder(Qt::AscendingOrder) {
     if (m_type == DroneListType::Deployed) m_cachedDrones = m_engine->getDroneData();
     else m_cachedDrones = m_engine->getInventoryData();
 }
@@ -88,6 +89,24 @@ void TelemetryModel::updateModel() {
     if (m_type == DroneListType::Deployed) newDrones = m_engine->getDroneData();
     else newDrones = m_engine->getInventoryData();
 
+    // Re-apply current sort parameters to the new data set
+    if (m_sortColumn != -1) {
+        std::sort(newDrones.begin(), newDrones.end(), [this](const Drone& a, const Drone& b) {
+            bool less = false;
+            switch (m_sortColumn) {
+                case 0: less = a.id < b.id; break;
+                case 1: less = a.x < b.x; break;
+                case 2: less = a.y < b.y; break;
+                case 3: less = a.z < b.z; break;
+                case 4: less = a.batteryLevel < b.batteryLevel; break;
+                case 5: less = static_cast<int>(a.status) < static_cast<int>(b.status); break;
+                case 6: less = a.proximityAlert < b.proximityAlert; break;
+                default: return false;
+            }
+            return m_sortOrder == Qt::AscendingOrder ? less : !less;
+        });
+    }
+
     // If the number of drones changed, we must reset the model to update the view's row count.
     // Otherwise, use dataChanged to preserve selection state and scroll position.
     if (newDrones.size() != m_cachedDrones.size()) {
@@ -98,6 +117,12 @@ void TelemetryModel::updateModel() {
         m_cachedDrones = newDrones;
         emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
     }
+}
+
+void TelemetryModel::sort(int column, Qt::SortOrder order) {
+    m_sortColumn = column;
+    m_sortOrder = order;
+    updateModel();
 }
 
 void TelemetryModel::setSelectedIds(const std::set<int>& ids) {

@@ -8,6 +8,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QTableView>
+#include <QHeaderView>
 #include <QApplication>
 #include <QItemSelectionModel>
 #include <QGroupBox>
@@ -15,10 +16,9 @@
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* centralWidget = new QWidget(this);
-    auto* layout = new QHBoxLayout(centralWidget);
-    auto* leftLayout = new QVBoxLayout();
+    auto* mainLayout = new QVBoxLayout(centralWidget);
 
-    // --- 1. Map Generation Control Group ---
+    // --- 1. Map Generation Control Group (Top) ---
     auto* configGroup = new QGroupBox("Map Generation Settings", this);
     auto* configLayout = new QVBoxLayout(configGroup);
 
@@ -44,21 +44,70 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     auto* startBtn = new QPushButton("Start Simulation", this);
     configLayout->addWidget(startBtn);
-    leftLayout->addWidget(configGroup);
+    mainLayout->addWidget(configGroup);
 
-    // --- 2. Simulation UI Container (Hidden initially) ---
-    m_simUIContainer = new QWidget(this);
-    auto* simLayout = new QVBoxLayout(m_simUIContainer);
-    simLayout->setContentsMargins(0, 0, 0, 0);
+    // --- 2. Middle Section: Hangar (Left) | Map (Center) | Deployed (Right) ---
+    auto* middleLayout = new QHBoxLayout();
 
-    simLayout->addWidget(new QLabel("<b>Deployed Drones (Active)</b>", this));
+    // Left: Hangar Inventory
+    auto* hangarContainer = new QWidget(this);
+    auto* hangarLayout = new QVBoxLayout(hangarContainer);
+    hangarLayout->setContentsMargins(0, 0, 0, 0);
+    hangarLayout->addWidget(new QLabel("<b>Hangar Inventory</b>", this));
+    m_hangarTableView = new QTableView(this);
+    m_hangarModel = new TelemetryModel(&m_engine, DroneListType::Hangar, this);
+    m_hangarTableView->setModel(m_hangarModel);
+    m_hangarTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_hangarTableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_hangarTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_hangarTableView->horizontalHeader()->setStretchLastSection(true);
+    hangarLayout->addWidget(m_hangarTableView);
+
+    // Center: Terrain View
+    m_terrainView = new TerrainView(&m_engine, this);
+    m_terrainView->hide();
+
+    // Right: Deployed Drones
+    auto* deployedContainer = new QWidget(this);
+    auto* deployedLayout = new QVBoxLayout(deployedContainer);
+    deployedLayout->setContentsMargins(0, 0, 0, 0);
+    deployedLayout->addWidget(new QLabel("<b>Deployed Drones</b>", this));
     m_tableView = new QTableView(this);
     m_model = new TelemetryModel(&m_engine, DroneListType::Deployed, this);
     m_tableView->setModel(m_model);
     m_tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    simLayout->addWidget(m_tableView);
+    m_tableView->horizontalHeader()->setStretchLastSection(true);
+    deployedLayout->addWidget(m_tableView);
+
+    // Enable clickable sorting for hangar table
+    connect(m_hangarTableView->horizontalHeader(), &QHeaderView::sectionClicked, [this](int column) {
+        Qt::SortOrder order = Qt::AscendingOrder;
+        if (m_hangarModel->m_sortColumn == column && m_hangarModel->m_sortOrder == Qt::AscendingOrder) {
+            order = Qt::DescendingOrder;
+        }
+        m_hangarModel->sort(column, order);
+    });
+
+    // Enable clickable sorting for deployed table
+    connect(m_tableView->horizontalHeader(), &QHeaderView::sectionClicked, [this](int column) {
+        Qt::SortOrder order = Qt::AscendingOrder;
+        if (m_model->m_sortColumn == column && m_model->m_sortOrder == Qt::AscendingOrder) {
+            order = Qt::DescendingOrder;
+        }
+        m_model->sort(column, order);
+    });
+
+    middleLayout->addWidget(hangarContainer);
+    middleLayout->addWidget(m_terrainView, 1);  // Give map most space
+    middleLayout->addWidget(deployedContainer);
+    mainLayout->addLayout(middleLayout, 1);  // Give middle section most vertical space
+
+    // --- 3. Bottom Section: Drone Controls ---
+    m_simUIContainer = new QWidget(this);
+    auto* controlsLayout = new QHBoxLayout(m_simUIContainer);
+    controlsLayout->setContentsMargins(0, 0, 0, 0);
 
     m_selectionLabel = new QLabel("No drones selected", this);
     m_modeSelector = new QComboBox(this);
@@ -75,30 +124,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_takeOffBtn = new QPushButton("Take Off", this);
     m_rtbBtn = new QPushButton("Return to Base", this);
 
-    simLayout->addWidget(m_selectionLabel);
-    simLayout->addWidget(new QLabel("Flight Mode:", this));
-    simLayout->addWidget(m_modeSelector);
-    simLayout->addWidget(m_launchBtn);
-    simLayout->addWidget(m_clearQueueBtn);
-    simLayout->addWidget(m_takeOffBtn);
-    simLayout->addWidget(m_landBtn);
-    simLayout->addWidget(m_rtbBtn);
-
-    simLayout->addWidget(new QLabel("<b>Hangar Inventory (Stored)</b>", this));
-    m_hangarTableView = new QTableView(this);
-    m_hangarModel = new TelemetryModel(&m_engine, DroneListType::Hangar, this);
-    m_hangarTableView->setModel(m_hangarModel);
-    m_hangarTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_hangarTableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_hangarTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_hangarTableView->setMaximumHeight(150);
-    simLayout->addWidget(m_hangarTableView);
-
-    leftLayout->addWidget(m_simUIContainer);
+    controlsLayout->addWidget(m_selectionLabel);
+    controlsLayout->addWidget(new QLabel("Flight Mode:", this));
+    controlsLayout->addWidget(m_modeSelector);
+    controlsLayout->addWidget(m_launchBtn);
+    controlsLayout->addWidget(m_clearQueueBtn);
+    controlsLayout->addWidget(m_takeOffBtn);
+    controlsLayout->addWidget(m_landBtn);
+    controlsLayout->addWidget(m_rtbBtn);
+    mainLayout->addWidget(m_simUIContainer);
     m_simUIContainer->hide();
 
-    m_terrainView = new TerrainView(&m_engine, this);
-    m_terrainView->hide();
 
     auto updateSelectionLabel = [this]() {
         if (m_selectedIds.empty()) {
@@ -232,9 +268,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_terrainView, &TerrainView::navPointClicked, [=](int droneId, int index) {
         m_engine.removeNavPoint(droneId, index);
     });
-
-    layout->addLayout(leftLayout);
-    layout->addWidget(m_terrainView);
 
     updateButtonStates();
     setCentralWidget(centralWidget);
