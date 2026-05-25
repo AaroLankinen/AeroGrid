@@ -4,6 +4,7 @@
 #include <QVBoxLayout>
 #include <QPushButton>
 #include <QLabel>
+#include <QSlider>
 #include <QComboBox>
 #include <set>
 #include "TelemetryModel.h"
@@ -31,4 +32,6 @@ private:
     QPushButton* m_rtbBtn;
     QComboBox* m_modeSelector;
     QLabel* m_selectionLabel;
+    QSlider* m_landWaterSlider;
+    QLabel* m_landWaterLabel;
 };

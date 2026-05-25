@@ -34,20 +34,23 @@ SimulationEngine::SimulationEngine(QObject* parent)
     }
 }
 
-void SimulationEngine::startSimulation(unsigned int seed) {
+void SimulationEngine::startSimulation(unsigned int seed, double landProp) {
     if (m_running) return;
     
     // Re-initialize terrain with the provided seed
-    m_terrain = TerrainMap(seed);
+    m_terrain = TerrainMap(seed, landProp);
     std::srand(seed); 
 
     m_drones.clear();
     m_baseInventory.clear();
 
     // Ensure base location is on land (Height >= 1.0)
+    int safetyCounter = 0;
     do {
         m_baseX = (std::rand() % 40) - 20.0;
         m_baseY = (std::rand() % 40) - 20.0;
+        // If the user specified 0% land, we must break to avoid infinite loop
+        if (++safetyCounter > 2000) break; 
     } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
 
     // 3. Initialize Hangar with 12 drones

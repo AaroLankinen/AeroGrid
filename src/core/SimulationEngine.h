@@ -16,7 +16,7 @@ class SimulationEngine : public QObject {
     Q_OBJECT
 public:
     explicit SimulationEngine(QObject* parent = nullptr);
-    void startSimulation(unsigned int seed);
+    void startSimulation(unsigned int seed, double landProp);
     void stopSimulation();
     
     // Thread-safe access to drone data for the UI

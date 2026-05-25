@@ -16,7 +16,8 @@ namespace {
     }
 }
 
-TerrainMap::TerrainMap(unsigned int seed) : m_width(200), m_height(200), m_cellSize(1.0), m_permutation(512), m_staticObstacles() {
+TerrainMap::TerrainMap(unsigned int seed, double landProp) 
+    : m_width(200), m_height(200), m_cellSize(1.0), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
     // Initialize permutation table for Perlin noise
     m_permutation.resize(256);
     std::iota(m_permutation.begin(), m_permutation.end(), 0);
@@ -36,39 +37,59 @@ TerrainMap::TerrainMap(unsigned int seed) : m_width(200), m_height(200), m_cellS
         // SimulationEngine uses these along with groundHeight to ensure they rest upon the ground.
         m_staticObstacles.push_back({i, ox, oy, radius, height});
     }
+
+    // Optimized Proportion Calculation:
+    // Perlin noise is smooth and spatially correlated. Sampling every 4th pixel (stride 4)
+    // provides a highly accurate distribution while performing 1/16th of the calculations.
+    const int sampleStride = 4;
+    std::vector<double> samples;
+    samples.reserve((m_width / sampleStride) * (m_height / sampleStride));
+
+    for (int y = 0; y < m_height; y += sampleStride) {
+        for (int x = 0; x < m_width; x += sampleStride) {
+            samples.push_back(calculateRawNoise(x * m_cellSize, y * m_cellSize));
+        }
+    }
+
+    // Use std::nth_element for O(N) average-time selection instead of O(N log N) sorting.
+    size_t thresholdIndex = static_cast<size_t>((1.0 - landProp) * (samples.size() - 1));
+    thresholdIndex = std::clamp(thresholdIndex, size_t(0), samples.size() - 1);
+
+    std::nth_element(samples.begin(), samples.begin() + thresholdIndex, samples.end());
+    m_waterThreshold = samples[thresholdIndex];
 }
 
-double TerrainMap::getHeightAt(double x, double y) const {
-    auto getNoise = [&](double nx, double ny, double nz) {
-        int X = (int)std::floor(nx) & 255;
-        int Y = (int)std::floor(ny) & 255;
-        int Z = (int)std::floor(nz) & 255;
-        nx -= std::floor(nx);
-        ny -= std::floor(ny);
-        nz -= std::floor(nz);
-        double u = fade(nx);
-        double v = fade(ny);
-        double w = fade(nz);
-        int a = m_permutation[X] + Y, aa = m_permutation[a] + Z, ab = m_permutation[a + 1] + Z;
-        int b = m_permutation[X + 1] + Y, ba = m_permutation[b] + Z, bb = m_permutation[b + 1] + Z;
-
-        return lerp(w, lerp(v, lerp(u, grad(m_permutation[aa], nx, ny, nz), grad(m_permutation[ba], nx - 1, ny, nz)),
-                               lerp(u, grad(m_permutation[ab], nx, ny - 1, nz), grad(m_permutation[bb], nx - 1, ny - 1, nz))),
-                       lerp(v, lerp(u, grad(m_permutation[aa + 1], nx, ny, nz - 1), grad(m_permutation[ba + 1], nx - 1, ny, nz - 1)),
-                               lerp(u, grad(m_permutation[ab + 1], nx, ny - 1, nz - 1), grad(m_permutation[bb + 1], nx - 1, ny - 1, nz - 1))));
-    };
-
+double TerrainMap::calculateRawNoise(double x, double y) const {
     double freq = 0.02;
     double amp = 20.0;
     double height = 0;
-    
-    // Fractal noise: Sum multiple octaves to create hills and valleys
-    height += getNoise(x * freq, y * freq, 0.5) * amp;
-    height += getNoise(x * freq * 2.1, y * freq * 2.1, 0.1) * (amp * 0.5);
-    height += getNoise(x * freq * 4.3, y * freq * 4.3, 0.9) * (amp * 0.25);
 
-    // Basin offset: Subtracting creates low areas for lakes and rivers (height < 1.0)
-    return std::max(0.0, height - 2.0);
+    // Fractal noise: Sum multiple octaves to create hills and valleys
+    height += getNoiseValue(x * freq, y * freq, 0.5) * amp;
+    height += getNoiseValue(x * freq * 2.1, y * freq * 2.1, 0.1) * (amp * 0.5);
+    height += getNoiseValue(x * freq * 4.3, y * freq * 4.3, 0.9) * (amp * 0.25);
+    return height;
+}
+
+double TerrainMap::getNoiseValue(double nx, double ny, double nz) const {
+    int X = (int)std::floor(nx) & 255;
+    int Y = (int)std::floor(ny) & 255;
+    int Z = (int)std::floor(nz) & 255;
+    nx -= std::floor(nx); ny -= std::floor(ny); nz -= std::floor(nz);
+    double u = fade(nx); double v = fade(ny); double w = fade(nz);
+    int a = m_permutation[X] + Y, aa = m_permutation[a] + Z, ab = m_permutation[a + 1] + Z;
+    int b = m_permutation[X + 1] + Y, ba = m_permutation[b] + Z, bb = m_permutation[b + 1] + Z;
+    return lerp(w, lerp(v, lerp(u, grad(m_permutation[aa], nx, ny, nz), grad(m_permutation[ba], nx - 1, ny, nz)),
+                           lerp(u, grad(m_permutation[ab], nx, ny - 1, nz), grad(m_permutation[bb], nx - 1, ny - 1, nz))),
+                   lerp(v, lerp(u, grad(m_permutation[aa + 1], nx, ny, nz - 1), grad(m_permutation[ba + 1], nx - 1, ny, nz - 1)),
+                           lerp(u, grad(m_permutation[ab + 1], nx, ny - 1, nz - 1), grad(m_permutation[bb + 1], nx - 1, ny - 1, nz - 1))));
+}
+
+double TerrainMap::getHeightAt(double x, double y) const {
+    // Normalize the noise so that 1.0 is the shoreline.
+    // Anything > 1.0 is land, anything < 1.0 is water.
+    double h = calculateRawNoise(x, y);
+    return std::max(0.0, h - m_waterThreshold + 1.0);
 }
 
 int TerrainMap::getWidth() const { return m_width; }

@@ -44,6 +44,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     seedLayout->addWidget(seedInput);
     seedLayout->addWidget(randSeedBtn);
 
+    // Land/Water proportion control
+    m_landWaterSlider = new QSlider(Qt::Horizontal, this);
+    m_landWaterSlider->setRange(0, 100);
+    m_landWaterSlider->setValue(50);
+    m_landWaterLabel = new QLabel("Land: 50% | Water: 50%", this);
+
+    connect(m_landWaterSlider, &QSlider::valueChanged, [this](int value) {
+        m_landWaterLabel->setText(QString("Land: %1% | Water: %2%").arg(value).arg(100 - value));
+    });
+
     // Control buttons
     auto* startBtn = new QPushButton("Start Simulation", this);
     
@@ -67,6 +77,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     leftLayout->addWidget(m_tableView);
     leftLayout->addLayout(seedLayout);
+    leftLayout->addWidget(new QLabel("Terrain Proportions (Land vs Water):", this));
+    leftLayout->addWidget(m_landWaterSlider);
+    leftLayout->addWidget(m_landWaterLabel);
     leftLayout->addWidget(m_selectionLabel);
     leftLayout->addWidget(new QLabel("Flight Mode:"));
     leftLayout->addWidget(m_modeSelector);
@@ -87,7 +100,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         unsigned int seed = seedInput->text().toUInt();
         if (seed == 0 && seedInput->text() != "0") seed = 12345;
         
-        m_engine.startSimulation(seed);
+        double landProp = m_landWaterSlider->value() / 100.0;
+        m_engine.startSimulation(seed, landProp);
         
         // Force the terrain view to re-draw its procedural cache for the new seed
         terrainView->renderTerrainCache();
