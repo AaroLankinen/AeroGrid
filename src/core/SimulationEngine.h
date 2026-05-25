@@ -16,6 +16,7 @@ class SimulationEngine : public QObject {
     Q_OBJECT
 public:
     explicit SimulationEngine(QObject* parent = nullptr);
+    ~SimulationEngine() override;
     void startSimulation(unsigned int seed, double landProp);
     void stopSimulation();
     

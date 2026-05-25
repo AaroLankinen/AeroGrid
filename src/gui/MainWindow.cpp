@@ -10,6 +10,7 @@
 #include <QTableView>
 #include <QApplication>
 #include <QItemSelectionModel>
+#include <QGroupBox>
 #include <QSignalBlocker>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -17,57 +18,56 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* layout = new QHBoxLayout(centralWidget);
     auto* leftLayout = new QVBoxLayout();
 
-    leftLayout->addWidget(new QLabel("<b>Deployed Drones (Active)</b>", this));
+    // --- 1. Map Generation Control Group ---
+    auto* configGroup = new QGroupBox("Map Generation Settings", this);
+    auto* configLayout = new QVBoxLayout(configGroup);
+
+    // Seed UI
+    auto* seedLayout = new QHBoxLayout();
+    auto* seedInput = new QLineEdit(this);
+    seedInput->setPlaceholderText("Map Seed (Numeric)");
+    seedInput->setText(QString::number(12345));
+    auto* randSeedBtn = new QPushButton("🎲", this);
+    seedLayout->addWidget(new QLabel("Seed:", this));
+    seedLayout->addWidget(seedInput);
+    seedLayout->addWidget(randSeedBtn);
+    configLayout->addLayout(seedLayout);
+
+    // Slider UI
+    m_landWaterSlider = new QSlider(Qt::Horizontal, this);
+    m_landWaterSlider->setRange(0, 100);
+    m_landWaterSlider->setValue(50);
+    m_landWaterLabel = new QLabel("Land: 50% | Water: 50%", this);
+    configLayout->addWidget(new QLabel("Land vs Water Proportion:", this));
+    configLayout->addWidget(m_landWaterSlider);
+    configLayout->addWidget(m_landWaterLabel);
+
+    auto* startBtn = new QPushButton("Start Simulation", this);
+    configLayout->addWidget(startBtn);
+    leftLayout->addWidget(configGroup);
+
+    // --- 2. Simulation UI Container (Hidden initially) ---
+    m_simUIContainer = new QWidget(this);
+    auto* simLayout = new QVBoxLayout(m_simUIContainer);
+    simLayout->setContentsMargins(0, 0, 0, 0);
+
+    simLayout->addWidget(new QLabel("<b>Deployed Drones (Active)</b>", this));
     m_tableView = new QTableView(this);
     m_model = new TelemetryModel(&m_engine, DroneListType::Deployed, this);
     m_tableView->setModel(m_model);
     m_tableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    simLayout->addWidget(m_tableView);
 
-    leftLayout->addWidget(new QLabel("<b>Hangar Inventory (Stored)</b>", this));
-    m_hangarTableView = new QTableView(this);
-    m_hangarModel = new TelemetryModel(&m_engine, DroneListType::Hangar, this);
-    m_hangarTableView->setModel(m_hangarModel);
-    m_hangarTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_hangarTableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_hangarTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_hangarTableView->setMaximumHeight(150);
-
-    // Seed Control
-    auto* seedLayout = new QHBoxLayout();
-    auto* seedInput = new QLineEdit(this);
-    seedInput->setPlaceholderText("Map Seed (Numeric)");
-    seedInput->setText(QString::number(12345));
-    auto* randSeedBtn = new QPushButton("🎲", this);
-    seedLayout->addWidget(new QLabel("Seed:"));
-    seedLayout->addWidget(seedInput);
-    seedLayout->addWidget(randSeedBtn);
-
-    // Land/Water proportion control
-    m_landWaterSlider = new QSlider(Qt::Horizontal, this);
-    m_landWaterSlider->setRange(0, 100);
-    m_landWaterSlider->setValue(50);
-    m_landWaterLabel = new QLabel("Land: 50% | Water: 50%", this);
-
-    connect(m_landWaterSlider, &QSlider::valueChanged, [this](int value) {
-        m_landWaterLabel->setText(QString("Land: %1% | Water: %2%").arg(value).arg(100 - value));
-    });
-
-    // Control buttons
-    auto* startBtn = new QPushButton("Start Simulation", this);
-    
-    auto* terrainView = new TerrainView(&m_engine, this);
-
+    m_selectionLabel = new QLabel("No drones selected", this);
     m_modeSelector = new QComboBox(this);
     m_modeSelector->addItem("Max Altitude", static_cast<int>(NavigationMode::MaxAltitude));
     m_modeSelector->addItem("Terrain Skimming", static_cast<int>(NavigationMode::TerrainSkimming));
     // Ensure the dropdown closes and loses focus after a selection
-    connect(m_modeSelector, QOverload<int>::of(&QComboBox::activated), [=](int) { 
+    connect(m_modeSelector, QOverload<int>::of(&QComboBox::activated), [this](int) { 
         m_modeSelector->clearFocus(); 
     });
-
-    m_selectionLabel = new QLabel("No drones selected", this);
 
     m_launchBtn = new QPushButton("Launch Drone (12 Available)", this);
     m_clearQueueBtn = new QPushButton("Clear Selected Queue", this);
@@ -75,44 +75,83 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_takeOffBtn = new QPushButton("Take Off", this);
     m_rtbBtn = new QPushButton("Return to Base", this);
 
-    leftLayout->addWidget(m_tableView);
-    leftLayout->addLayout(seedLayout);
-    leftLayout->addWidget(new QLabel("Terrain Proportions (Land vs Water):", this));
-    leftLayout->addWidget(m_landWaterSlider);
-    leftLayout->addWidget(m_landWaterLabel);
-    leftLayout->addWidget(m_selectionLabel);
-    leftLayout->addWidget(new QLabel("Flight Mode:"));
-    leftLayout->addWidget(m_modeSelector);
-    leftLayout->addWidget(m_launchBtn);
-    leftLayout->addWidget(m_clearQueueBtn);
-    leftLayout->addWidget(m_landBtn);
-    leftLayout->addWidget(m_takeOffBtn);
-    leftLayout->addWidget(m_rtbBtn);
-    leftLayout->addWidget(startBtn);
-    leftLayout->addWidget(m_hangarTableView);
+    simLayout->addWidget(m_selectionLabel);
+    simLayout->addWidget(new QLabel("Flight Mode:", this));
+    simLayout->addWidget(m_modeSelector);
+    simLayout->addWidget(m_launchBtn);
+    simLayout->addWidget(m_clearQueueBtn);
+    simLayout->addWidget(m_takeOffBtn);
+    simLayout->addWidget(m_landBtn);
+    simLayout->addWidget(m_rtbBtn);
 
-    // Connections for Seed and Start
-    connect(randSeedBtn, &QPushButton::clicked, [=]() {
+    simLayout->addWidget(new QLabel("<b>Hangar Inventory (Stored)</b>", this));
+    m_hangarTableView = new QTableView(this);
+    m_hangarModel = new TelemetryModel(&m_engine, DroneListType::Hangar, this);
+    m_hangarTableView->setModel(m_hangarModel);
+    m_hangarTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_hangarTableView->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_hangarTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_hangarTableView->setMaximumHeight(150);
+    simLayout->addWidget(m_hangarTableView);
+
+    leftLayout->addWidget(m_simUIContainer);
+    m_simUIContainer->hide();
+
+    m_terrainView = new TerrainView(&m_engine, this);
+    m_terrainView->hide();
+
+    auto updateSelectionLabel = [this]() {
+        if (m_selectedIds.empty()) {
+            m_selectionLabel->setText("No drones selected");
+        } else {
+            m_selectionLabel->setText(QString("%1 Drones Selected").arg(m_selectedIds.size()));
+        }
+    };
+
+    auto syncSelectionState = [this, updateSelectionLabel]() {
+        m_model->setSelectedIds(m_selectedIds);
+        m_terrainView->setSelectedIds(m_selectedIds);
+        updateSelectionLabel();
+        updateButtonStates();
+    };
+
+    auto selectedIdsFromView = [this](QTableView* view, TelemetryModel* model) {
+        std::set<int> ids;
+        if (!view->selectionModel()) return ids;
+        for (const auto& index : view->selectionModel()->selectedRows()) {
+            int id = model->getDroneIdAt(index.row());
+            if (id != -1) ids.insert(id);
+        }
+        return ids;
+    };
+
+    auto applyToSelected = [this](auto action) {
+        for (int id : m_selectedIds) action(id);
+    };
+
+    connect(randSeedBtn, &QPushButton::clicked, [seedInput]() {
         seedInput->setText(QString::number(QRandomGenerator::global()->generate() % 999999));
     });
 
-    connect(startBtn, &QPushButton::clicked, [this, seedInput, terrainView]() {
+    connect(m_landWaterSlider, &QSlider::valueChanged, [this](int value) {
+        m_landWaterLabel->setText(QString("Land: %1% | Water: %2%").arg(value).arg(100 - value));
+    });
+
+    connect(startBtn, &QPushButton::clicked, [this, seedInput, startBtn]() {
         unsigned int seed = seedInput->text().toUInt();
         if (seed == 0 && seedInput->text() != "0") seed = 12345;
         
         double landProp = m_landWaterSlider->value() / 100.0;
         m_engine.startSimulation(seed, landProp);
         
-        // Force the terrain view to re-draw its procedural cache for the new seed
-        terrainView->renderTerrainCache();
-        terrainView->update();
+        m_terrainView->renderTerrainCache();
+        m_terrainView->show();
+        m_simUIContainer->show();
+        startBtn->setText("Regenerate Map");
     });
 
-    updateButtonStates();
-
-    // Combined signal to update UI components every frame
-    connect(&m_engine, &SimulationEngine::simulationUpdated, [this, terrainView]() {
-        terrainView->update();
+    connect(&m_engine, &SimulationEngine::simulationUpdated, [this]() {
+        m_terrainView->update();
         m_model->updateModel();
         m_hangarModel->updateModel();
         int count = m_engine.getInventoryCount();
@@ -130,8 +169,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         }
     });
             
-    auto updateUI = [this, terrainView]() {
-        // Sync set -> table view selection visually
+    auto updateUI = [this]() {
         if (m_tableView->selectionModel()) {
             QSignalBlocker blocker(m_tableView->selectionModel());
             m_tableView->selectionModel()->clearSelection();
@@ -143,7 +181,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             }
         }
         m_model->setSelectedIds(m_selectedIds);
-        terrainView->setSelectedIds(m_selectedIds);
+        m_terrainView->setSelectedIds(m_selectedIds);
         if (m_selectedIds.empty()) {
             m_selectionLabel->setText("No drones selected");
         } else {
@@ -152,74 +190,53 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         updateButtonStates();
     };
 
-    connect(terrainView, &TerrainView::dronesSelected, [=](const std::set<int>& ids) {
+    connect(m_terrainView, &TerrainView::dronesSelected, [this, syncSelectionState](const std::set<int>& ids) {
         m_selectedIds = ids;
-        updateUI();
+        syncSelectionState();
     });
 
-    // Synchronize Table Selection -> internal set
-    // This handles Shift+Click (ranges) and Ctrl+Click (multi) automatically
     connect(m_tableView->selectionModel(), &QItemSelectionModel::selectionChanged, 
-            [this, terrainView](const QItemSelection &selected, const QItemSelection &deselected) {
-        m_selectedIds.clear();
-        for (const auto& index : m_tableView->selectionModel()->selectedRows()) {
-            int id = m_model->getDroneIdAt(index.row());
-            if (id != -1) m_selectedIds.insert(id);
-        }
-        
-        // Update Map and Model (without re-syncing the table selection)
-        m_model->setSelectedIds(m_selectedIds);
-        terrainView->setSelectedIds(m_selectedIds);
-        
-        if (m_selectedIds.empty()) {
-            m_selectionLabel->setText("No drones selected");
-        } else {
-            m_selectionLabel->setText(QString("%1 Drones Selected").arg(m_selectedIds.size()));
-        }
-        updateButtonStates();
+            [this, syncSelectionState, selectedIdsFromView](const QItemSelection&, const QItemSelection&) {
+        m_selectedIds = selectedIdsFromView(m_tableView, m_model);
+        syncSelectionState();
     });
 
-    // Synchronize Hangar Table Selection -> internal set
-    connect(m_hangarTableView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            [this]() {
-        m_selectedHangarIds.clear();
-        for (const auto& index : m_hangarTableView->selectionModel()->selectedRows()) {
-            int id = m_hangarModel->getDroneIdAt(index.row());
-            if (id != -1) m_selectedHangarIds.insert(id);
-        }
+    connect(m_hangarTableView->selectionModel(), &QItemSelectionModel::selectionChanged, [this, selectedIdsFromView]() {
+        m_selectedHangarIds = selectedIdsFromView(m_hangarTableView, m_hangarModel);
         m_hangarModel->setSelectedIds(m_selectedHangarIds);
     });
 
-    connect(m_rtbBtn, &QPushButton::clicked, [=]() {
-        for (int id : m_selectedIds) m_engine.returnToBase(id);
+    connect(m_rtbBtn, &QPushButton::clicked, [this, applyToSelected]() {
+        applyToSelected([this](int id) { m_engine.returnToBase(id); });
     });
 
-    connect(m_landBtn, &QPushButton::clicked, [=]() {
-        for (int id : m_selectedIds) m_engine.landDrone(id);
+    connect(m_landBtn, &QPushButton::clicked, [this, applyToSelected]() {
+        applyToSelected([this](int id) { m_engine.landDrone(id); });
     });
 
-    connect(terrainView, &TerrainView::mapTargetSet, [=](double x, double y) {
+    connect(m_terrainView, &TerrainView::mapTargetSet, [=](double x, double y) {
         NavigationMode mode = static_cast<NavigationMode>(m_modeSelector->currentData().toInt());
         for (int id : m_selectedIds) {
             m_engine.assignTarget(id, x, y, mode);
         }
     });
 
-    connect(m_takeOffBtn, &QPushButton::clicked, [=]() {
-        for (int id : m_selectedIds) m_engine.takeOff(id);
+    connect(m_takeOffBtn, &QPushButton::clicked, [this, applyToSelected]() {
+        applyToSelected([this](int id) { m_engine.takeOff(id); });
     });
 
-    connect(m_clearQueueBtn, &QPushButton::clicked, [=]() {
-        for (int id : m_selectedIds) m_engine.clearNavQueue(id);
+    connect(m_clearQueueBtn, &QPushButton::clicked, [this, applyToSelected]() {
+        applyToSelected([this](int id) { m_engine.clearNavQueue(id); });
     });
 
-    connect(terrainView, &TerrainView::navPointClicked, [=](int droneId, int index) {
+    connect(m_terrainView, &TerrainView::navPointClicked, [=](int droneId, int index) {
         m_engine.removeNavPoint(droneId, index);
     });
 
     layout->addLayout(leftLayout);
-    layout->addWidget(terrainView);
+    layout->addWidget(m_terrainView);
 
+    updateButtonStates();
     setCentralWidget(centralWidget);
 }
 

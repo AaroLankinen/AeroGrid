@@ -8,34 +8,15 @@
 
 SimulationEngine::SimulationEngine(QObject* parent) 
     : QObject(parent), m_running(false), m_workerThread(nullptr) {
-    // Initialize with 5 dummy drones
-    for(int i = 0; i < 5; ++i) m_drones.emplace_back(i);
     std::srand(std::time(nullptr)); // Seed random for GPS drift
+}
 
-    // 1. Initialize semi-random base location near the map center
-    // This must happen before drones or signal logic are initialized
-    m_baseX = (std::rand() % 40) - 20.0;
-    m_baseY = (std::rand() % 40) - 20.0;
-
-    // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)
-    m_dynamicObstacles.clear();
-    int obstacleCount = 3 + (std::rand() % 4);
-    for (int i = 0; i < obstacleCount; ++i) {
-        m_dynamicObstacles.push_back({
-            100 + i,                            // ID
-            (double)(std::rand() % 160 - 80),    // X
-            (double)(std::rand() % 160 - 80),    // Y
-            (double)(std::rand() % 40 + 20),     // Z (Initial Altitude)
-            (double)(std::rand() % 6 - 3),       // VX
-            (double)(std::rand() % 6 - 3),       // VY
-            (double)(std::rand() % 4 - 2) * 0.1, // VZ
-            1.0 + (std::rand() % 200) / 100.0    // Radius
-        });
-    }
+SimulationEngine::~SimulationEngine() {
+    stopSimulation();
 }
 
 void SimulationEngine::startSimulation(unsigned int seed, double landProp) {
-    if (m_running) return;
+    if (m_running) stopSimulation();
     
     // Re-initialize terrain with the provided seed
     m_terrain = TerrainMap(seed, landProp);
@@ -53,6 +34,22 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp) {
         if (++safetyCounter > 2000) break; 
     } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
 
+    // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)
+    m_dynamicObstacles.clear();
+    int obstacleCount = 3 + (std::rand() % 4);
+    for (int i = 0; i < obstacleCount; ++i) {
+        m_dynamicObstacles.push_back({
+            100 + i,                            // ID
+            (double)(std::rand() % 160 - 80),    // X
+            (double)(std::rand() % 160 - 80),    // Y
+            (double)(std::rand() % 40 + 20),     // Z (Initial Altitude)
+            (double)(std::rand() % 6 - 3),       // VX
+            (double)(std::rand() % 6 - 3),       // VY
+            (double)(std::rand() % 4 - 2) * 0.1, // VZ
+            1.0 + (std::rand() % 200) / 100.0    // Radius
+        });
+    }
+
     // 3. Initialize Hangar with 12 drones
     for(int i = 0; i < 12; ++i) {
         m_baseInventory.emplace_back(i);
@@ -68,7 +65,7 @@ void SimulationEngine::stopSimulation() {
     if (m_workerThread) {
         m_workerThread->quit();
         m_workerThread->wait();
-        m_workerThread->deleteLater();
+        delete m_workerThread;
         m_workerThread = nullptr;
     }
 }

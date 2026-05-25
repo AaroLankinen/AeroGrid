@@ -9,6 +9,8 @@
 #include <set>
 #include "TelemetryModel.h"
 
+class TerrainView;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
@@ -22,6 +24,8 @@ private:
     TelemetryModel* m_hangarModel;
     QTableView* m_tableView;
     QTableView* m_hangarTableView;
+    QWidget* m_simUIContainer;
+    TerrainView* m_terrainView;
 
     std::set<int> m_selectedIds;
     std::set<int> m_selectedHangarIds;
