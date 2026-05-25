@@ -1,7 +1,9 @@
 #include "TerrainView.h"
 #include <QPainter>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QtGlobal>
+#include <cmath>
 
 TerrainView::TerrainView(SimulationEngine* engine, QWidget* parent)
     : QWidget(parent), m_engine(engine) {
@@ -37,15 +39,38 @@ void TerrainView::renderTerrainCache() {
     }
 }
 
+void TerrainView::screenToWorld(double screenX, double screenY, double& outWorldX, double& outWorldY) const {
+    const auto& terrain = m_engine->getTerrain();
+    
+    // Convert screen pixels to cache pixels using cached view parameters
+    double cachePx = m_cachedSrcX + (screenX / width()) * m_cachedViewPixelsX;
+    double cachePy = m_cachedSrcY + (screenY / height()) * m_cachedViewPixelsY;
+    
+    // Convert cache pixels to world coordinates
+    outWorldX = (cachePx - terrain.getWidth() / 2.0) * terrain.getCellSize();
+    outWorldY = (cachePy - terrain.getHeight() / 2.0) * terrain.getCellSize();
+}
+
+void TerrainView::worldToScreen(double worldX, double worldY, double& outScreenX, double& outScreenY) const {
+    const auto& terrain = m_engine->getTerrain();
+    
+    // Convert world coordinates to cache pixels
+    double cachePx = worldX / terrain.getCellSize() + terrain.getWidth() / 2.0;
+    double cachePy = worldY / terrain.getCellSize() + terrain.getHeight() / 2.0;
+    
+    // Convert cache pixels to screen pixels using cached view parameters
+    outScreenX = (cachePx - m_cachedSrcX) / m_cachedViewPixelsX * width();
+    outScreenY = (cachePy - m_cachedSrcY) / m_cachedViewPixelsY * height();
+}
+
 void TerrainView::setSelectedIds(const std::set<int>& ids) {
     m_selectedIds = ids;
     update();
 }
 
 void TerrainView::mousePressEvent(QMouseEvent* event) {
-    const auto& terrain = m_engine->getTerrain();
-    double worldX = (static_cast<double>(event->position().x()) / width() * terrain.getWidth() - terrain.getWidth() / 2.0) * terrain.getCellSize();
-    double worldY = (static_cast<double>(event->position().y()) / height() * terrain.getHeight() - terrain.getHeight() / 2.0) * terrain.getCellSize();
+    double worldX, worldY;
+    screenToWorld(event->position().x(), event->position().y(), worldX, worldY);
     bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
 
     if (event->button() == Qt::LeftButton) {
@@ -109,16 +134,16 @@ void TerrainView::mouseReleaseEvent(QMouseEvent* event) {
         auto drones = m_engine->getDroneData();
         const auto& terrain = m_engine->getTerrain();
         
-        auto worldToScreen = [&](double wx, double wy) {
-            float sx = (wx / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
-            float sy = (wy / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
+        auto worldToScreenLambda = [this](double wx, double wy) {
+            double sx, sy;
+            worldToScreen(wx, wy, sx, sy);
             return QPoint(static_cast<int>(sx), static_cast<int>(sy));
         };
 
         if (!(event->modifiers() & Qt::ControlModifier)) m_selectedIds.clear();
 
         for (const auto& drone : drones) {
-            if (rect.contains(worldToScreen(drone.x, drone.y))) {
+            if (rect.contains(worldToScreenLambda(drone.x, drone.y))) {
                 m_selectedIds.insert(drone.id);
             }
         }
@@ -128,22 +153,112 @@ void TerrainView::mouseReleaseEvent(QMouseEvent* event) {
     }
 }
 
+void TerrainView::wheelEvent(QWheelEvent* event) {
+    if (!m_engine) return;
+    
+    const auto& terrain = m_engine->getTerrain();
+    
+    // Calculate the base scale that makes the terrain fill the widget at zoom 1.0
+    double scaleX = static_cast<double>(width()) / terrain.getWidth();
+    double scaleY = static_cast<double>(height()) / terrain.getHeight();
+    double baseScale = std::min(scaleX, scaleY);
+    
+    // Dynamically calculate max zoom based on screen resolution and terrain cell size
+    // At maximum zoom, a cell should be roughly 4-8 pixels across (readable without being huge)
+    double cellPixelsAtBaseScale = terrain.getCellSize() * baseScale;
+    double maxZoomDynamic = std::max(4.0, cellPixelsAtBaseScale / 4.0);  // 4 pixels per cell minimum
+    
+    // Get cursor position in world coordinates before zoom
+    double cursorWorldX, cursorWorldY;
+    screenToWorld(event->position().x(), event->position().y(), cursorWorldX, cursorWorldY);
+    
+    // Update zoom level with dynamic limits
+    double oldZoom = m_zoomLevel;
+    if (event->angleDelta().y() > 0) {
+        m_zoomLevel = std::min(maxZoomDynamic, m_zoomLevel * ZOOM_FACTOR);
+    } else {
+        m_zoomLevel = std::max(MIN_ZOOM, m_zoomLevel / ZOOM_FACTOR);
+    }
+    
+    // Only adjust pan if zoom actually changed
+    if (m_zoomLevel != oldZoom) {
+        // Adjust pan so the world point under the cursor stays at the cursor position
+        double newCursorWorldX, newCursorWorldY;
+        screenToWorld(event->position().x(), event->position().y(), newCursorWorldX, newCursorWorldY);
+        
+        m_panX += cursorWorldX - newCursorWorldX;
+        m_panY += cursorWorldY - newCursorWorldY;
+        
+        update();
+    }
+    
+    event->accept();
+}
+
 void TerrainView::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-
-    // Draw the pre-rendered terrain heatmap
-    painter.drawImage(rect(), m_terrainCache);
-
+    
     const auto& terrain = m_engine->getTerrain();
-    auto worldToScreen = [&](double wx, double wy) {
-        float sx = (wx / terrain.getCellSize() + terrain.getWidth() / 2.0f) * width() / terrain.getWidth();
-        float sy = (wy / terrain.getCellSize() + terrain.getHeight() / 2.0f) * height() / terrain.getHeight();
-        return QPointF(sx, sy);
+    
+    // Calculate the base scale that makes the terrain fill the widget at zoom 1.0
+    double scaleX = static_cast<double>(width()) / terrain.getWidth();
+    double scaleY = static_cast<double>(height()) / terrain.getHeight();
+    double baseScale = std::min(scaleX, scaleY);  // Maintain aspect ratio
+    
+    // Effective scale with zoom applied
+    double effectiveScale = baseScale * m_zoomLevel;
+    
+    // Calculate which part of the terrain cache to display
+    // At zoom 1.0, we see the full cache; at zoom 2.0, we see 1/2 the cache, etc.
+    double viewCachePixelsX = width() / effectiveScale;
+    double viewCachePixelsY = height() / effectiveScale;
+    
+    // Clamp to terrain bounds
+    viewCachePixelsX = std::min(viewCachePixelsX, static_cast<double>(terrain.getWidth()));
+    viewCachePixelsY = std::min(viewCachePixelsY, static_cast<double>(terrain.getHeight()));
+    
+    // Calculate center of view in terrain cache pixels, adjusted by pan
+    double centerCacheX = terrain.getWidth() / 2.0 + m_panX / (terrain.getCellSize() * baseScale);
+    double centerCacheY = terrain.getHeight() / 2.0 + m_panY / (terrain.getCellSize() * baseScale);
+    
+    // Calculate source rectangle in terrain cache
+    m_cachedSrcX = centerCacheX - viewCachePixelsX / 2.0;
+    m_cachedSrcY = centerCacheY - viewCachePixelsY / 2.0;
+    
+    // Clamp to terrain bounds
+    if (m_cachedSrcX < 0) m_cachedSrcX = 0;
+    if (m_cachedSrcY < 0) m_cachedSrcY = 0;
+    if (m_cachedSrcX + viewCachePixelsX > terrain.getWidth()) 
+        m_cachedSrcX = terrain.getWidth() - viewCachePixelsX;
+    if (m_cachedSrcY + viewCachePixelsY > terrain.getHeight()) 
+        m_cachedSrcY = terrain.getHeight() - viewCachePixelsY;
+    
+    // Cache these for coordinate conversion
+    m_cachedViewPixelsX = viewCachePixelsX;
+    m_cachedViewPixelsY = viewCachePixelsY;
+    m_cachedBaseScale = baseScale;
+    
+    QRectF sourceRect(m_cachedSrcX, m_cachedSrcY, viewCachePixelsX, viewCachePixelsY);
+    QRectF targetRect(0, 0, width(), height());
+    
+    painter.drawImage(targetRect, m_terrainCache, sourceRect);
+
+    // Helper lambda to convert world coordinates to screen coordinates
+    auto worldToScreenOnScreen = [&](double wx, double wy) {
+        // Convert world to terrain cache pixels
+        double cachePx = wx / terrain.getCellSize() + terrain.getWidth() / 2.0;
+        double cachePy = wy / terrain.getCellSize() + terrain.getHeight() / 2.0;
+        
+        // Convert cache pixels to screen pixels
+        double screenX = (cachePx - m_cachedSrcX) / viewCachePixelsX * width();
+        double screenY = (cachePy - m_cachedSrcY) / viewCachePixelsY * height();
+        
+        return QPointF(screenX, screenY);
     };
 
     // Draw Base (Helipad)
-    QPointF basePos = worldToScreen(m_engine->getBaseX(), m_engine->getBaseY());
+    QPointF basePos = worldToScreenOnScreen(m_engine->getBaseX(), m_engine->getBaseY());
     painter.setPen(QPen(Qt::white, 2));
     painter.setBrush(Qt::darkGray);
     painter.drawEllipse(basePos, 15, 15);
@@ -153,8 +268,8 @@ void TerrainView::paintEvent(QPaintEvent*) {
     painter.setBrush(QColor(255, 0, 0, 180)); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : terrain.getObstacles()) {
-        QPointF screenPos = worldToScreen(obs.x, obs.y);
-        float screenRadius = (obs.radius / terrain.getCellSize()) * width() / terrain.getWidth();
+        QPointF screenPos = worldToScreenOnScreen(obs.x, obs.y);
+        float screenRadius = (obs.radius / terrain.getCellSize()) / viewCachePixelsX * width();
         painter.drawEllipse(screenPos, screenRadius, screenRadius);
     }
 
@@ -162,15 +277,15 @@ void TerrainView::paintEvent(QPaintEvent*) {
     painter.setBrush(QColor(255, 140, 0, 200)); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : m_engine->getDynamicObstacleData()) {
-        QPointF screenPos = worldToScreen(obs.x, obs.y);
-        float screenRadius = (obs.radius / terrain.getCellSize()) * width() / terrain.getWidth();
+        QPointF screenPos = worldToScreenOnScreen(obs.x, obs.y);
+        float screenRadius = (obs.radius / terrain.getCellSize()) / viewCachePixelsX * width();
         painter.drawEllipse(screenPos, screenRadius, screenRadius);
     }
 
     // Draw drones at their relative positions
     auto drones = m_engine->getDroneData();
     for (const auto& drone : drones) {
-        QPointF dronePos = worldToScreen(drone.x, drone.y);
+        QPointF dronePos = worldToScreenOnScreen(drone.x, drone.y);
 
         // Draw Navigation Path
         if (!drone.navQueue.empty()) {
@@ -179,7 +294,7 @@ void TerrainView::paintEvent(QPaintEvent*) {
             
             QPointF lastPt = dronePos;
             for (const auto& pt : drone.navQueue) {
-                QPointF currentPt = worldToScreen(pt.x, pt.y);
+                QPointF currentPt = worldToScreenOnScreen(pt.x, pt.y);
                 painter.drawLine(lastPt, currentPt);
                 
                 painter.setBrush(Qt::NoBrush);
