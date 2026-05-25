@@ -79,7 +79,7 @@ void SimulationEngine::processHangarLogic() {
             double dy = it->y - m_baseY;
             double dist = std::sqrt(dx*dx + dy*dy);
             
-            if (dist < 5.0) { // Within 5m of helipad center
+            if (dist < 10.0) { // Within 10m of helipad center (accommodates grid landing)
                 it->returningToBase = false;
                 it->navQueue.clear();
                 m_baseInventory.push_back(*it);
@@ -299,7 +299,8 @@ void SimulationEngine::run() {
                 }
 
                 // Check for ground contact
-                if (drone.z <= groundHeight + 0.05) {
+                // Only trigger if moving downwards to avoid immediate landing on takeoff due to jitter
+                if (drone.z <= groundHeight + 0.05 && drone.vz < 0) {
                     // Drones crash if the vertical impact velocity is too high (e.g., free fall)
                     // A controlled landing at -1.5 m/s is considered safe.
                     if (std::abs(drone.vz) < 2.0) {
@@ -405,10 +406,14 @@ void SimulationEngine::launchDrone() {
     Drone d = m_baseInventory.back();
     m_baseInventory.pop_back();
 
-    // Place drone on the helipad
-    d.x = m_baseX;
-    d.y = m_baseY;
-    d.z = m_terrain.getHeightAt(m_baseX, m_baseY);
+    // Place drone on a specific launch pad to avoid collisions during simultaneous launch.
+    // Matches the formation logic used in flight (3-column grid).
+    double offsetX = (d.id % 3 - 1) * 4.0;
+    double offsetY = (d.id / 3 - 1) * 4.0;
+
+    d.x = m_baseX + offsetX;
+    d.y = m_baseY + offsetY;
+    d.z = m_terrain.getHeightAt(d.x, d.y);
     d.status = DroneStatus::Landed;
     d.vx = d.vy = d.vz = 0;
     
@@ -426,10 +431,13 @@ void SimulationEngine::launchDrones(const std::vector<int>& ids) {
             Drone d = *it;
             m_baseInventory.erase(it);
 
-            // Place drone on the helipad
-            d.x = m_baseX;
-            d.y = m_baseY;
-            d.z = m_terrain.getHeightAt(m_baseX, m_baseY);
+            // Place drone on its specific launch pad
+            double offsetX = (d.id % 3 - 1) * 4.0;
+            double offsetY = (d.id / 3 - 1) * 4.0;
+
+            d.x = m_baseX + offsetX;
+            d.y = m_baseY + offsetY;
+            d.z = m_terrain.getHeightAt(d.x, d.y);
             d.status = DroneStatus::Landed;
             d.vx = d.vy = d.vz = 0;
             
