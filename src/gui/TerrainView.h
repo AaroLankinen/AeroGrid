@@ -12,6 +12,7 @@ public:
     explicit TerrainView(SimulationEngine* engine, QWidget* parent = nullptr);
     void setSelectedIds(const std::set<int>& ids);
     void renderTerrainCache();
+    void resetView();
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -30,6 +31,10 @@ private:
     void screenToWorld(double screenX, double screenY, double& outWorldX, double& outWorldY) const;
     // Helper to convert world coordinates to screen coordinates with zoom/pan applied
     void worldToScreen(double worldX, double worldY, double& outScreenX, double& outScreenY) const;
+    // Helper to update cached view parameters based on current zoom and pan
+    void updateViewMetrics() const;
+    void getClampedWorldCenter(double& outCenterX, double& outCenterY) const;
+    double getEffectivePixelsPerMeter() const;
 
     QImage m_terrainCache;
     SimulationEngine* m_engine;
@@ -41,6 +46,8 @@ private:
     double m_zoomLevel = 1.0;      // 1.0 = no zoom, >1.0 = zoomed in
     double m_panX = 0.0;           // World coordinate offset
     double m_panY = 0.0;
+    bool m_panning = false;
+    QPoint m_panLastPos;
     static constexpr double MIN_ZOOM = 0.5;
     static constexpr double MAX_ZOOM = 5.0;
     static constexpr double ZOOM_FACTOR = 1.2;  // Multiplier per scroll tick

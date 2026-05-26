@@ -16,21 +16,26 @@ SimulationEngine::~SimulationEngine() {
     stopSimulation();
 }
 
-void SimulationEngine::startSimulation(unsigned int seed, double landProp) {
+void SimulationEngine::startSimulation(unsigned int seed, double landProp, int width, int height) {
     if (m_running) stopSimulation();
     
-    // Re-initialize terrain with the provided seed
-    m_terrain = TerrainMap(seed, landProp);
+    // Re-initialize terrain with the provided seed and preset dimensions
+    m_terrain = TerrainMap(seed, landProp, width, height);
     std::srand(seed); 
 
     m_drones.clear();
     m_baseInventory.clear();
 
+    const double halfWorldWidth = m_terrain.getWorldWidth() * 0.5;
+    const double halfWorldHeight = m_terrain.getWorldHeight() * 0.5;
+    const double basePlacementRangeX = std::max(10.0, halfWorldWidth * 0.25);
+    const double basePlacementRangeY = std::max(10.0, halfWorldHeight * 0.25);
+
     // Ensure base location is on land (Height >= 1.0)
     int safetyCounter = 0;
     do {
-        m_baseX = (std::rand() % 40) - 20.0;
-        m_baseY = (std::rand() % 40) - 20.0;
+        m_baseX = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * basePlacementRangeX) - basePlacementRangeX;
+        m_baseY = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * basePlacementRangeY) - basePlacementRangeY;
         // If the user specified 0% land, we must break to avoid infinite loop
         if (++safetyCounter > 2000) break; 
     } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
@@ -39,15 +44,22 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp) {
     m_dynamicObstacles.clear();
     int obstacleCount = 3 + (std::rand() % 4);
     for (int i = 0; i < obstacleCount; ++i) {
+        double obsX = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldWidth) - halfWorldWidth;
+        double obsY = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldHeight) - halfWorldHeight;
+        double obsVX = (std::rand() / static_cast<double>(RAND_MAX)) * 6.0 - 3.0;
+        double obsVY = (std::rand() / static_cast<double>(RAND_MAX)) * 6.0 - 3.0;
+        double obsVZ = ((std::rand() % 4) - 2) * 0.1;
+        double obsRadius = 1.0 + (std::rand() % 200) / 100.0;
+
         m_dynamicObstacles.push_back({
             100 + i,                            // ID
-            (double)(std::rand() % 160 - 80),    // X
-            (double)(std::rand() % 160 - 80),    // Y
+            obsX,
+            obsY,
             (double)(std::rand() % 40 + 20),     // Z (Initial Altitude)
-            (double)(std::rand() % 6 - 3),       // VX
-            (double)(std::rand() % 6 - 3),       // VY
-            (double)(std::rand() % 4 - 2) * 0.1, // VZ
-            1.0 + (std::rand() % 200) / 100.0    // Radius
+            obsVX,
+            obsVY,
+            obsVZ,
+            obsRadius
         });
     }
 
@@ -109,9 +121,10 @@ void SimulationEngine::run() {
                 obs.y += obs.vy * dt;
                 obs.z += obs.vz * dt;
 
-                // Simple boundary logic: bounce back if they hit map edges (approx 100m)
-                if (std::abs(obs.x) > 90.0) obs.vx *= -1;
-                if (std::abs(obs.y) > 90.0) obs.vy *= -1;
+                const double halfWorldWidth = m_terrain.getWorldWidth() * 0.5;
+                const double halfWorldHeight = m_terrain.getWorldHeight() * 0.5;
+                if (obs.x < -halfWorldWidth || obs.x > halfWorldWidth) obs.vx *= -1;
+                if (obs.y < -halfWorldHeight || obs.y > halfWorldHeight) obs.vy *= -1;
                 if (obs.z < 10.0 || obs.z > 60.0) obs.vz *= -1;
             }
 

@@ -33,6 +33,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     seedLayout->addWidget(randSeedBtn);
     configLayout->addLayout(seedLayout);
 
+    // Map Presets UI
+    auto* dimLayout = new QHBoxLayout();
+    m_mapPresetCombo = new QComboBox(this);
+    m_mapPresetCombo->addItem("Small (250x250)", 250);
+    m_mapPresetCombo->addItem("Medium (500x500)", 500);
+    m_mapPresetCombo->addItem("Large (1000x1000)", 1000);
+    m_mapPresetCombo->setCurrentIndex(1); // Default to Medium
+
+    dimLayout->addWidget(new QLabel("Map Size:", this));
+    dimLayout->addWidget(m_mapPresetCombo);
+    configLayout->addLayout(dimLayout);
+
     // Slider UI
     m_landWaterSlider = new QSlider(Qt::Horizontal, this);
     m_landWaterSlider->setRange(0, 100);
@@ -178,8 +190,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (seed == 0 && seedInput->text() != "0") seed = 12345;
         
         double landProp = m_landWaterSlider->value() / 100.0;
-        m_engine.startSimulation(seed, landProp);
+        int size = m_mapPresetCombo->currentData().toInt();
+        m_engine.startSimulation(seed, landProp, size, size);
         
+        m_terrainView->resetView();
         m_terrainView->renderTerrainCache();
         m_terrainView->show();
         m_simUIContainer->show();

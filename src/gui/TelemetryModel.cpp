@@ -3,8 +3,9 @@
 #include <QFont>
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, DroneListType type, QObject* parent) 
-    : QAbstractTableModel(parent), m_engine(engine), m_type(type), 
-      m_sortColumn(-1), m_sortOrder(Qt::AscendingOrder) {
+    : QAbstractTableModel(parent), m_engine(engine), m_type(type) {
+    m_sortColumn = -1;
+    m_sortOrder = Qt::AscendingOrder;
     if (m_type == DroneListType::Deployed) m_cachedDrones = m_engine->getDroneData();
     else m_cachedDrones = m_engine->getInventoryData();
 }
@@ -127,7 +128,9 @@ void TelemetryModel::sort(int column, Qt::SortOrder order) {
 
 void TelemetryModel::setSelectedIds(const std::set<int>& ids) {
     m_selectedIds = ids;
-    emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+    if (rowCount() > 0) {
+        emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+    }
 }
 
 int TelemetryModel::getDroneIdAt(int row) const {

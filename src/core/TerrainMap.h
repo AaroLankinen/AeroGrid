@@ -15,13 +15,15 @@ struct DynamicObstacle {
 
 class TerrainMap {
 public:
-    TerrainMap(unsigned int seed = 12345, double landProp = 0.5);
+    TerrainMap(unsigned int seed = 12345, double landProp = 0.5, int width = 200, int height = 200, double cellSize = 1.0);
 
     double getHeightAt(double x, double y) const;
 
     int getWidth() const;
     int getHeight() const;
     double getCellSize() const;
+    double getWorldWidth() const;
+    double getWorldHeight() const;
     
     const std::vector<StaticObstacle>& getObstacles() const;
 

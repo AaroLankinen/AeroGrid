@@ -34,6 +34,7 @@ private:
     QPushButton* m_landBtn;
     QPushButton* m_takeOffBtn;
     QPushButton* m_rtbBtn;
+    QComboBox* m_mapPresetCombo;
     QComboBox* m_modeSelector;
     QLabel* m_selectionLabel;
     QSlider* m_landWaterSlider;

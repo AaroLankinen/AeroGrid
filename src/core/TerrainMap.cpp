@@ -16,8 +16,8 @@ namespace {
     }
 }
 
-TerrainMap::TerrainMap(unsigned int seed, double landProp) 
-    : m_width(200), m_height(200), m_cellSize(1.0), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
+TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize)
+    : m_width(width), m_height(height), m_cellSize(cellSize), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
     // Initialize permutation table for Perlin noise
     m_permutation.resize(256);
     std::iota(m_permutation.begin(), m_permutation.end(), 0);
@@ -27,19 +27,22 @@ TerrainMap::TerrainMap(unsigned int seed, double landProp)
 
     // Procedural Static Obstacle Spawning
     std::srand(seed + 1); 
+    const double halfWorldWidth = (m_width * m_cellSize) * 0.5;
+    const double halfWorldHeight = (m_height * m_cellSize) * 0.5;
+    const double helipadMargin = std::min(halfWorldWidth, halfWorldHeight) * 0.2;
+
     for (int i = 0; i < 10; ++i) {
         double ox, oy, radius;
         bool valid;
         int attempts = 0;
         do {
             valid = true;
-            ox = (std::rand() % 160) - 80.0;
-            oy = (std::rand() % 160) - 80.0;
+            ox = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldWidth) - halfWorldWidth;
+            oy = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldHeight) - halfWorldHeight;
             radius = 3.0 + (std::rand() % 500) / 100.0;
 
-            // 1. Helipad Safety Zone: Keep buildings away from the central area 
-            // where the base is generated (usually within [-20, 20]).
-            if (std::abs(ox) < 35.0 && std::abs(oy) < 35.0) {
+            // 1. Helipad Safety Zone: Keep buildings away from the central area
+            if (std::abs(ox) < helipadMargin && std::abs(oy) < helipadMargin) {
                 valid = false;
             }
 
@@ -119,6 +122,8 @@ double TerrainMap::getHeightAt(double x, double y) const {
 int TerrainMap::getWidth() const { return m_width; }
 int TerrainMap::getHeight() const { return m_height; }
 double TerrainMap::getCellSize() const { return m_cellSize; }
+double TerrainMap::getWorldWidth() const { return m_width * m_cellSize; }
+double TerrainMap::getWorldHeight() const { return m_height * m_cellSize; }
 const std::vector<StaticObstacle>& TerrainMap::getObstacles() const {
     return m_staticObstacles;
 }
