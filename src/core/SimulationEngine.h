@@ -3,7 +3,9 @@
 #include <QThread>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
+#include <map>
 #include "Drone.h"
 #include "TerrainMap.h"
 
@@ -345,10 +347,10 @@ private:
     void updateDroneSignalStrength(Drone& drone);
 
     // Simulation State
-    std::vector<Drone> m_drones;                ///< Currently deployed drones.
+    std::map<int, Drone> m_drones;              ///< Currently deployed drones (ID -> Drone).
     std::vector<Drone> m_baseInventory;         ///< Drones in the hangar.
     std::vector<DynamicObstacle> m_dynamicObstacles;  ///< Moving obstacles (birds, etc.)
-    mutable std::mutex m_mutex;                 ///< Protects m_drones during thread access.
+    mutable std::shared_mutex m_mutex;          ///< Protects m_drones with Read-Write access.
     std::atomic<bool> m_running;                ///< Flag to signal the physics thread to stop.
     
     // Base Station & Terrain

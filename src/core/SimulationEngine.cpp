@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
+#include <shared_mutex>
 #include <cmath>
 #include <algorithm>
 #include <QtMath>
@@ -89,19 +90,20 @@ void SimulationEngine::processHangarLogic() {
     auto it = m_drones.begin();
     while (it != m_drones.end()) {
         // If a drone has returned to base and landed, move it to inventory
-        if (it->status == DroneStatus::Landed && it->returningToBase) {
-            double dx = it->x - m_baseX;
-            double dy = it->y - m_baseY;
+        Drone& d = it->second;
+        if (d.status == DroneStatus::Landed && d.returningToBase) {
+            double dx = d.x - m_baseX;
+            double dy = d.y - m_baseY;
             double dist = qSqrt(dx*dx + dy*dy);
             
             if (dist < 10.0) { // Within 10m of helipad center (accommodates grid landing)
-                it->returningToBase = false;
-                it->navQueue.clear();
+                d.returningToBase = false;
+                d.navQueue.clear();
                 
                 // Maintain sorted order by ID when returning to inventory
-                auto insertPos = std::lower_bound(m_baseInventory.begin(), m_baseInventory.end(), *it,
+                auto insertPos = std::lower_bound(m_baseInventory.begin(), m_baseInventory.end(), d,
                     [](const Drone& a, const Drone& b) { return a.id < b.id; });
-                m_baseInventory.insert(insertPos, *it);
+                m_baseInventory.insert(insertPos, d);
                 it = m_drones.erase(it);
                 continue;
             }
@@ -114,12 +116,12 @@ void SimulationEngine::run() {
     const double dt = AeroGrid::Physics::DT;
     while (m_running) {
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            std::unique_lock<std::shared_mutex> lock(m_mutex);
             updateDynamicObstacles(dt);
             processHangarLogic();
             updateHangarDrones();
-            for (auto& drone : m_drones) {
-                updateDroneState(drone, dt);
+            for (auto& pair : m_drones) {
+                updateDroneState(pair.second, dt);
             }
             handleDroneToDroneCollisions();
         }
@@ -324,11 +326,11 @@ void SimulationEngine::updateDroneSignalStrength(Drone& drone) {
 }
 
 void SimulationEngine::handleDroneToDroneCollisions() {
-    for (size_t i = 0; i < m_drones.size(); ++i) {
-        for (size_t j = i + 1; j < m_drones.size(); ++j) {
-            auto& d1 = m_drones[i];
-            auto& d2 = m_drones[j];
-            
+    for (auto it1 = m_drones.begin(); it1 != m_drones.end(); ++it1) {
+        for (auto it2 = std::next(it1); it2 != m_drones.end(); ++it2) {
+            auto& d1 = it1->second;
+            auto& d2 = it2->second;
+
             if (d1.status == DroneStatus::Crashed || d2.status == DroneStatus::Crashed) continue;
 
             double dx = d1.x - d2.x;
@@ -364,35 +366,38 @@ void SimulationEngine::handleDroneToDroneCollisions() {
 }
 
 std::vector<Drone> SimulationEngine::getDroneData() {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return m_drones;
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
+    std::vector<Drone> drones;
+    drones.reserve(m_drones.size());
+    for (const auto& pair : m_drones) {
+        drones.push_back(pair.second);
+    }
+    return drones;
 }
 
 const Drone* SimulationEngine::getDroneById(int id) const {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = std::find_if(m_drones.begin(), m_drones.end(), [id](const Drone& d) {
-        return d.id == id;
-    });
-    return (it != m_drones.end()) ? &(*it) : nullptr;
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    return (it != m_drones.end()) ? &(it->second) : nullptr;
 }
 
 std::vector<DynamicObstacle> SimulationEngine::getDynamicObstacleData() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     return m_dynamicObstacles;
 }
 
 std::vector<Drone> SimulationEngine::getInventoryData() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     return m_baseInventory;
 }
 
 int SimulationEngine::getInventoryCount() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::shared_lock<std::shared_mutex> lock(m_mutex);
     return (int)m_baseInventory.size();
 }
 
 void SimulationEngine::launchDrone() {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     if (m_baseInventory.empty()) return;
 
     Drone d = m_baseInventory.back();
@@ -409,11 +414,11 @@ void SimulationEngine::launchDrone() {
     d.status = DroneStatus::Landed;
     d.vx = d.vy = d.vz = 0;
     
-    m_drones.push_back(d);
+    m_drones.insert_or_assign(d.id, std::move(d));
 }
 
 void SimulationEngine::launchDrones(const std::vector<int>& ids) {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
     for (int id : ids) {
         auto it = std::find_if(m_baseInventory.begin(), m_baseInventory.end(), [id](const Drone& d) {
             return d.id == id;
@@ -433,80 +438,81 @@ void SimulationEngine::launchDrones(const std::vector<int>& ids) {
             d.status = DroneStatus::Landed;
             d.vx = d.vy = d.vz = 0;
             
-            m_drones.push_back(d);
+            m_drones.insert_or_assign(d.id, std::move(d));
         }
     }
 }
 
 void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode mode) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id) {
-            drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
-            drone.navMode = mode;
-            drone.returningToBase = false; // Manual target overrides RTB
-        }
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
+        drone.navMode = mode;
+        drone.returningToBase = false; // Manual target overrides RTB
     }
 }
 
 void SimulationEngine::takeOff(int id) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id && drone.status == DroneStatus::Landed) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        if (drone.status == DroneStatus::Landed) {
             double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
             double batteryRequiredToTakeoff = drone.calculateBatteryRequiredToLand(groundHeight);
 
             if (drone.batteryLevel > batteryRequiredToTakeoff) {
                 drone.status = DroneStatus::Flying;
                 drone.vz = 2.0; // Initial ascent thrust
-                break;
             }
         }
     }
 }
 
 void SimulationEngine::returnToBase(int id) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id && drone.status == DroneStatus::Flying) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        if (drone.status == DroneStatus::Flying) {
             drone.navQueue.clear();
             drone.navQueue.push_back({m_baseX, m_baseY, 0.0});
             drone.returningToBase = true;
-            break;
         }
     }
 }
 
 void SimulationEngine::landDrone(int id) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id && drone.status == DroneStatus::Flying) {
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        if (drone.status == DroneStatus::Flying) {
             drone.status = DroneStatus::Landing;
             drone.navQueue.clear();
-            break;
         }
     }
 }
 
 void SimulationEngine::clearNavQueue(int id) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id) {
-            drone.navQueue.clear();
-            drone.vx = drone.vy = drone.vz = 0; // Stop moving
-            break;
-        }
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        drone.navQueue.clear();
+        drone.vx = drone.vy = drone.vz = 0; // Stop moving
     }
 }
 
 void SimulationEngine::removeNavPoint(int id, int index) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    for (auto& drone : m_drones) {
-        if (drone.id == id) {
-            if (index >= 0 && index < (int)drone.navQueue.size()) {
-                drone.navQueue.erase(drone.navQueue.begin() + index);
-            }
-            break;
+    std::unique_lock<std::shared_mutex> lock(m_mutex);
+    auto it = m_drones.find(id);
+    if (it != m_drones.end()) {
+        Drone& drone = it->second;
+        if (index >= 0 && index < (int)drone.navQueue.size()) {
+            drone.navQueue.erase(drone.navQueue.begin() + index);
         }
     }
 }
