@@ -6,6 +6,7 @@
 #include <mutex>
 #include <cmath>
 #include <algorithm>
+#include <QtMath>
 #include "Constants.h"
 
 SimulationEngine::SimulationEngine(QObject* parent) 
@@ -91,7 +92,7 @@ void SimulationEngine::processHangarLogic() {
         if (it->status == DroneStatus::Landed && it->returningToBase) {
             double dx = it->x - m_baseX;
             double dy = it->y - m_baseY;
-            double dist = std::sqrt(dx*dx + dy*dy);
+            double dist = qSqrt(dx*dx + dy*dy);
             
             if (dist < 10.0) { // Within 10m of helipad center (accommodates grid landing)
                 it->returningToBase = false;
@@ -143,7 +144,7 @@ void SimulationEngine::updateDynamicObstacles(double dt) {
 
 void SimulationEngine::updateHangarDrones() {
     for (auto& drone : m_baseInventory) {
-        drone.batteryLevel = std::min(100.0, drone.batteryLevel + AeroGrid::Physics::HANGAR_CHARGE_RATE); 
+        drone.batteryLevel = qMin(100.0, drone.batteryLevel + AeroGrid::Physics::HANGAR_CHARGE_RATE); 
     }
 }
 
@@ -152,7 +153,7 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
     drone.proximityAlert = false; 
 
     if (drone.status == DroneStatus::Landed) {
-        drone.batteryLevel = std::min(100.0, drone.batteryLevel + AeroGrid::Physics::LANDED_CHARGE_RATE);
+        drone.batteryLevel = qMin(100.0, drone.batteryLevel + AeroGrid::Physics::LANDED_CHARGE_RATE);
         return;
     }
 
@@ -164,6 +165,17 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
     drone.x += drone.vx * dt; 
     drone.y += drone.vy * dt;
     drone.z += drone.vz * dt;
+
+    // Update Orientation based on movement (Yaw)
+    // Drones "look" in the direction of their horizontal velocity
+    if (qSqrt(drone.vx * drone.vx + drone.vy * drone.vy) > 0.1) {
+        double targetYaw = qRadiansToDegrees(qAtan2(drone.vy, drone.vx));
+        // Smoothly interpolate yaw for 3D camera stability
+        double diff = targetYaw - drone.yaw;
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+        drone.yaw += diff * 0.1; 
+    }
 
     if (drone.status == DroneStatus::Flying) {
         drone.x += (rand() % 100 - 50) / 1000.0;
@@ -185,7 +197,7 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
         return;
     }
 
-    double altitudeAGL = std::max(0.0, drone.z - groundHeight);
+    double altitudeAGL = qMax(0.0, drone.z - groundHeight);
     double batteryRequiredToLand = drone.calculateBatteryRequiredToLand(groundHeight);
 
     if (drone.status == DroneStatus::Flying && drone.batteryLevel <= batteryRequiredToLand) {
@@ -210,7 +222,7 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
         double dx = tx - drone.x;
         double dy = ty - drone.y;
         double dz = tz - drone.z;
-        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+        double dist = qSqrt(dx*dx + dy*dy + dz*dz);
 
         if (dist > AeroGrid::Physics::MIN_DRONE_DIST) {
             drone.vx = (dx / dist) * 5.0;
@@ -225,14 +237,14 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
         double minSafeZ = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
         if (drone.z < minSafeZ - 0.1) {
             drone.vx = drone.vy = 0;
-            drone.vz = std::abs(AeroGrid::Physics::LANDING_SLOW_SPEED);
+            drone.vz = qAbs(AeroGrid::Physics::LANDING_SLOW_SPEED);
         } else {
             drone.vx = drone.vy = drone.vz = 0;
             if (drone.z < minSafeZ) drone.z = minSafeZ;
         }
     }
 
-    double speed = std::sqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+    double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
     drone.batteryLevel -= (AeroGrid::Physics::HOVER_CONSUMPTION + speed * AeroGrid::Physics::VELOCITY_CONSUMPTION_FACTOR);
 }
 
@@ -241,7 +253,7 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
     for (const auto& obs : obstacles) {
         double dx = drone.x - obs.x;
         double dy = drone.y - obs.y;
-        double dist2D = std::sqrt(dx*dx + dy*dy);
+        double dist2D = qSqrt(dx*dx + dy*dy);
         double minDist = drone.radius + obs.radius;
         double safeZone = minDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
 
@@ -270,7 +282,7 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dx = drone.x - obs.x;
         double dy = drone.y - obs.y;
         double dz = drone.z - obs.z;
-        double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+        double dist = qSqrt(dx*dx + dy*dy + dz*dz);
         double minDist = drone.radius + obs.radius;
         double safeZone = minDist + AeroGrid::Physics::DYNAMIC_OBS_SAFETY_MARGIN;
 
@@ -293,7 +305,7 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
 
 void SimulationEngine::checkGroundContact(Drone& drone, double groundHeight) {
     if (drone.z <= groundHeight + 0.05 && drone.vz < 0) {
-        if (std::abs(drone.vz) < AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
+        if (qAbs(drone.vz) < AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
             drone.status = DroneStatus::Landed;
         } else {
             drone.status = DroneStatus::Crashed;
@@ -307,8 +319,8 @@ void SimulationEngine::updateDroneSignalStrength(Drone& drone) {
     double sDx = drone.x - m_baseX;
     double sDy = drone.y - m_baseY;
     double sDz = drone.z;
-    double distToBase = std::sqrt(sDx*sDx + sDy*sDy + sDz*sDz);
-    drone.signalStrength = std::max(0.0, 1.0 - (distToBase / AeroGrid::World::SIGNAL_MAX_RANGE));
+    double distToBase = qSqrt(sDx*sDx + sDy*sDy + sDz*sDz);
+    drone.signalStrength = qMax(0.0, 1.0 - (distToBase / AeroGrid::World::SIGNAL_MAX_RANGE));
 }
 
 void SimulationEngine::handleDroneToDroneCollisions() {
@@ -322,7 +334,7 @@ void SimulationEngine::handleDroneToDroneCollisions() {
             double dx = d1.x - d2.x;
             double dy = d1.y - d2.y;
             double dz = d1.z - d2.z;
-            double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+            double dist = qSqrt(dx*dx + dy*dy + dz*dz);
             if (dist < 0.001) continue; 
 
             double minDist = d1.radius + d2.radius;
@@ -354,6 +366,14 @@ void SimulationEngine::handleDroneToDroneCollisions() {
 std::vector<Drone> SimulationEngine::getDroneData() {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_drones;
+}
+
+const Drone* SimulationEngine::getDroneById(int id) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = std::find_if(m_drones.begin(), m_drones.end(), [id](const Drone& d) {
+        return d.id == id;
+    });
+    return (it != m_drones.end()) ? &(*it) : nullptr;
 }
 
 std::vector<DynamicObstacle> SimulationEngine::getDynamicObstacleData() {

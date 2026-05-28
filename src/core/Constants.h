@@ -45,6 +45,8 @@ namespace Physics {
     constexpr double REPULSION_FORCE_STATIC = 0.2;
     constexpr double REPULSION_FORCE_DYNAMIC = 0.3;
     constexpr double REPULSION_FORCE_DRONE = 0.2;
+
+    constexpr double CAMERA_PITCH_IDLE = -15.0;
 }
 
 /**

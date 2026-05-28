@@ -94,6 +94,15 @@ public:
      * @return A vector of all Drone objects currently in flight or landed.
      */
     std::vector<Drone> getDroneData();
+
+    /**
+     * @brief Retrieves a pointer to a single drone by its ID.
+     *
+     * This method is thread-safe and uses a mutex to protect against concurrent
+     * access from the physics thread.
+     * @return A const pointer to the Drone object, or nullptr if not found.
+     */
+    const Drone* getDroneById(int id) const;
     
     /**
      * @brief Returns a deep copy of all drones currently in the hangar.
@@ -339,7 +348,7 @@ private:
     std::vector<Drone> m_drones;                ///< Currently deployed drones.
     std::vector<Drone> m_baseInventory;         ///< Drones in the hangar.
     std::vector<DynamicObstacle> m_dynamicObstacles;  ///< Moving obstacles (birds, etc.)
-    std::mutex m_mutex;                         ///< Protects m_drones during thread access.
+    mutable std::mutex m_mutex;                 ///< Protects m_drones during thread access.
     std::atomic<bool> m_running;                ///< Flag to signal the physics thread to stop.
     
     // Base Station & Terrain

@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <algorithm>
+#include <QtGlobal>
 #include "Constants.h"
 
 /**
@@ -46,6 +47,11 @@ struct Drone {
     // 3D Kinematics
     double x, y, z;                 ///< Position in 3D space (meters).
     double vx, vy, vz;              ///< Velocity vectors (meters per second).
+
+    // 3D Orientation (Euler Angles in Degrees)
+    double yaw;                     ///< Rotation around Z (heading).
+    double pitch;                   ///< Rotation around Y (tilt).
+    double roll;                    ///< Rotation around X (bank).
     
     // Power Management
     double batteryLevel;            ///< Percentage (0.0 - 100.0). Landed drones charge at +0.05% per tick.
@@ -71,8 +77,11 @@ struct Drone {
      * 
      * @param _id The unique identifier for this drone.
      */
-    Drone(int _id) : id(_id), x(0), y(0), z(0), vx(0), vy(0), vz(0), 
-                     batteryLevel(100.0), status(DroneStatus::Flying), 
+    Drone(int _id) : id(_id), x(0), y(0), z(0), vx(0), vy(0), vz(0),
+                     yaw(0), 
+                     pitch(AeroGrid::Physics::CAMERA_PITCH_IDLE), 
+                     roll(0),
+                     batteryLevel(100.0), status(DroneStatus::Flying),
                      signalStrength(1.0), radius(AeroGrid::Physics::DRONE_RADIUS), navMode(NavigationMode::Manual),
                      returningToBase(false), proximityAlert(false) {}
 
@@ -87,10 +96,10 @@ struct Drone {
      */
     double calculateBatteryRequiredToLand(double groundHeight) const {
         using namespace AeroGrid::Physics;
-        double altitudeAGL = std::max(0.0, z - groundHeight);
+        double altitudeAGL = qMax(0.0, z - groundHeight);
         
-        double t_fast = std::max(0.0, (altitudeAGL - MIN_SAFE_ALTITUDE_AGL) / std::abs(LANDING_FAST_SPEED));
-        double t_slow = std::min(altitudeAGL, MIN_SAFE_ALTITUDE_AGL) / std::abs(LANDING_SLOW_SPEED);
+        double t_fast = qMax(0.0, (altitudeAGL - MIN_SAFE_ALTITUDE_AGL) / qAbs(LANDING_FAST_SPEED));
+        double t_slow = qMin(altitudeAGL, MIN_SAFE_ALTITUDE_AGL) / qAbs(LANDING_SLOW_SPEED);
         
         return (t_fast * FAST_LANDING_BATTERY_COST) + (t_slow * SLOW_LANDING_BATTERY_COST) + LANDING_SAFETY_MARGIN;
     }

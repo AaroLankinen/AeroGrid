@@ -7,6 +7,7 @@
 #include <QSlider>
 #include <QComboBox>
 #include <set>
+#include <QHBoxLayout>
 #include "TelemetryModel.h"
 
 class TerrainView;
@@ -18,6 +19,7 @@ public:
 
 private:
     void updateButtonStates();
+    void updateCameraViews();
 
     SimulationEngine m_engine;
     TelemetryModel* m_model;
@@ -25,6 +27,8 @@ private:
     QTableView* m_tableView;
     QTableView* m_hangarTableView;
     QWidget* m_simUIContainer;
+    QWidget* m_cameraScrollContent;
+    QHBoxLayout* m_cameraLayout;
     TerrainView* m_terrainView;
 
     std::set<int> m_selectedIds;

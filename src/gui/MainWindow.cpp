@@ -13,10 +13,94 @@
 #include <QItemSelectionModel>
 #include <QGroupBox>
 #include <QSignalBlocker>
+#include <QScrollArea>
+#include <QPainter>
+#include <QVector2D>
+#include <QtMath> // For qCos, qSin, qSqrt
+#include <QColor>
+#include <algorithm>
+#include <cmath>
+
+/**
+ * @brief Specialized widget that renders a first-person perspective from a drone's camera.
+ * 
+ * Projects the heightmap data from the SimulationEngine's TerrainMap using the 
+ * drone's 3D position and orientation (yaw/pitch).
+ */
+class DroneCameraWidget : public QWidget {
+public:
+    DroneCameraWidget(int droneId, SimulationEngine* engine, QWidget* parent = nullptr)
+        : QWidget(parent), m_droneId(droneId), m_engine(engine) {
+        setFixedSize(240, 135); // 16:9 aspect ratio
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.fillRect(rect(), Qt::black);
+
+        const Drone* drone = m_engine->getDroneById(m_droneId);
+        if (!drone) return; // Drone not found or no longer active
+
+        const TerrainMap& terrain = m_engine->getTerrain();
+
+        // Render simplified horizon/ground projection
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.fillRect(0, 0, width(), height() / 2, QColor(100, 149, 237)); // Sky
+
+        double yawRad = drone->yaw * (M_PI / 180.0);
+        QVector2D forward(qCos(yawRad), qSin(yawRad));
+        QVector2D right(-forward.y(), forward.x());
+
+        const int numCols = 32;
+        const int numRows = 12;
+        const double step = 3.0;
+        
+        for (int z = numRows; z > 0; --z) {
+            double dist = z * step;
+            for (int x = -numCols / 2; x < numCols / 2; ++x) { // Corrected loop condition
+                double xOff = x * step * (dist / 15.0);
+                double worldX = drone->x + forward.x() * dist + right.x() * xOff;
+                double worldY = drone->y + forward.y() * dist + right.y() * xOff;
+                double h = terrain.getHeightAt(worldX, worldY);
+                
+                double screenX = (x + numCols / 2) * (width() / (double)numCols); // Corrected division to double
+                double screenY = height() / 2.0 + (drone->z - h) * (4.0 / (dist + 1.0)) * (height() / 12.0); // Corrected division to double
+                
+                QColor color = (h < 1.0) ? QColor(20, 60, 200) : QColor(34, 139, 34);
+                painter.setBrush(color.darker(100 + (z * 5)));
+                painter.setPen(Qt::NoPen);
+                painter.drawRect(QRectF(screenX, screenY, (width() / (double)numCols) + 1, height() / 4.0));
+            }
+        }
+
+        painter.setPen(Qt::white);
+        painter.drawText(5, 15, QString("D%1 | ALT: %2m").arg(m_droneId).arg(drone->z, 0, 'f', 1));
+        painter.setPen(QColor(255, 255, 255, 100));
+        painter.drawLine(width()/2 - 10, height()/2, width()/2 + 10, height()/2);
+        painter.drawLine(width()/2, height()/2 - 10, width()/2, height()/2 + 10);
+    }
+
+private:
+    int m_droneId;
+    SimulationEngine* m_engine;
+};
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* centralWidget = new QWidget(this);
     auto* mainLayout = new QVBoxLayout(centralWidget);
+
+    // --- 0. Remote Camera Views (Top) ---
+    auto* cameraScroll = new QScrollArea(this);
+    cameraScroll->setWidgetResizable(true);
+    cameraScroll->setFixedHeight(160);
+    m_cameraScrollContent = new QWidget(this);
+    m_cameraLayout = new QHBoxLayout(m_cameraScrollContent);
+    m_cameraLayout->setContentsMargins(5, 5, 5, 5);
+    m_cameraLayout->setAlignment(Qt::AlignLeft);
+    cameraScroll->setWidget(m_cameraScrollContent);
+    cameraScroll->hide();
+    mainLayout->addWidget(cameraScroll);
 
     // --- 1. Map Generation Control Group (Top) ---
     auto* configGroup = new QGroupBox("Map Generation Settings", this);
@@ -40,6 +124,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_mapPresetCombo->addItem("Medium (500x500)", 500);
     m_mapPresetCombo->addItem("Large (1000x1000)", 1000);
     m_mapPresetCombo->setCurrentIndex(1); // Default to Medium
+
+    // Ensure the dropdown closes and loses focus after a selection
+    connect(m_mapPresetCombo, QOverload<int>::of(&QComboBox::activated), [this](int) {
+        m_mapPresetCombo->clearFocus();
+    });
 
     dimLayout->addWidget(new QLabel("Map Size:", this));
     dimLayout->addWidget(m_mapPresetCombo);
@@ -163,6 +252,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         m_terrainView->setSelectedIds(m_selectedIds);
         updateSelectionLabel();
         updateButtonStates();
+        updateCameraViews();
     };
 
     auto selectedIdsFromView = [this](QTableView* view, TelemetryModel* model) {
@@ -204,6 +294,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     connect(&m_engine, &SimulationEngine::simulationUpdated, [this]() {
         m_terrainView->update();
+        for (int i = 0; i < m_cameraLayout->count(); ++i) {
+            if (auto* w = m_cameraLayout->itemAt(i)->widget()) w->update();
+        }
         m_model->updateModel();
         m_hangarModel->updateModel();
         int count = m_engine.getInventoryCount();
@@ -287,6 +380,22 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     updateButtonStates();
     setCentralWidget(centralWidget);
+}
+
+void MainWindow::updateCameraViews() {
+    QLayoutItem* child;
+    while ((child = m_cameraLayout->takeAt(0)) != nullptr) {
+        if (child->widget()) child->widget()->deleteLater();
+        delete child;
+    }
+
+    for (int id : m_selectedIds) {
+        auto* cam = new DroneCameraWidget(id, &m_engine, this);
+        m_cameraLayout->addWidget(cam);
+    }
+    
+    // Show scroll area only if cameras exist
+    m_cameraScrollContent->parentWidget()->parentWidget()->setVisible(!m_selectedIds.empty());
 }
 
 void MainWindow::updateButtonStates() {

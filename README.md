@@ -6,6 +6,8 @@ AeroGrid is a high-performance, real-time drone simulation environment built wit
 
 ### Physics Engine
 *   **Real-time Simulation**: Multi-threaded physics running at 20Hz (50ms per frame) handling 3D kinematics, gravity, and sensor noise
+*   **3D Orientation**: Real-time yaw/pitch/roll calculation based on flight dynamics
+*   **Remote Camera Support**: Internal support for drone-mounted POV cameras with configurable FOV
 *   **Accurate Battery Management**: 
     *   Hovering: 0.05% per frame + 0.01% per m/s of velocity
     *   Hangar Charging: 0.5% per frame (5% per second) for accelerated charging

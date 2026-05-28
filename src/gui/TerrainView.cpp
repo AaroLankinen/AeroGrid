@@ -3,6 +3,7 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QResizeEvent>
+#include <QtMath> // For qCos, qSin, qSqrt
 #include <QtGlobal>
 #include <cmath>
 #include "Constants.h"
@@ -173,7 +174,7 @@ bool TerrainView::checkDroneHit(double worldX, double worldY, bool ctrlPressed) 
     for (const auto& drone : drones) {
         double dx = drone.x - worldX;
         double dy = drone.y - worldY;
-        if (std::sqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
+        if (qSqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
             if (ctrlPressed) {
                 if (m_selectedIds.count(drone.id)) m_selectedIds.erase(drone.id);
                 else m_selectedIds.insert(drone.id);

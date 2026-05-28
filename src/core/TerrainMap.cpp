@@ -3,6 +3,7 @@
 #include <numeric>
 #include <random>
 #include <algorithm>
+#include <QtMath> // For qSqrt
 #include "Constants.h"
 
 namespace {
@@ -59,7 +60,7 @@ void TerrainMap::generateStaticObstacles(unsigned int seed) {
                 for (const auto& existing : m_staticObstacles) {
                     double dx = ox - existing.x;
                     double dy = oy - existing.y;
-                    double dist = std::sqrt(dx*dx + dy*dy);
+                    double dist = qSqrt(dx*dx + dy*dy);
                     // Maintain a minimum separation based on radii plus a safety buffer
                     if (dist < (radius + existing.radius + 5.0)) {
                         valid = false;
@@ -126,7 +127,7 @@ double TerrainMap::getHeightAt(double x, double y) const {
     // Normalize the noise so that 1.0 is the shoreline.
     // Anything > 1.0 is land, anything < 1.0 is water.
     double h = calculateRawNoise(x, y);
-    return std::max(0.0, h - m_waterThreshold + 1.0);
+    return qMax(0.0, h - m_waterThreshold + 1.0);
 }
 
 int TerrainMap::getWidth() const { return m_width; }
