@@ -6,8 +6,8 @@
  */
 enum class DroneStatus {
     Flying,             ///< Active flight, consuming battery based on speed.
-    Crashed,
-    Disconnected,
+    Crashed,            ///< Drone has collided with an obstacle or another drone.
+    Disconnected,       ///< Drone has lost communication with the base station.
     Landing,            ///< User-initiated controlled descent.
     EmergencyLanding,   ///< Automated descent triggered by low battery.
     Landed              ///< Stationary on ground, solar charging active.
@@ -15,31 +15,60 @@ enum class DroneStatus {
 
 /**
  * @brief Defines how Z-axis (altitude) is managed during navigation.
+ * 
+ * Controls the altitude behavior when a drone is following a waypoint.
  */
 enum class NavigationMode {
-    Manual,             ///< Use target Z exactly.
-    MaxAltitude,        ///< Transits at fixed high altitude (80m).
-    TerrainSkimming     ///< Transits at fixed AGL (5m) following terrain.
+    Manual,             ///< Use target Z exactly as specified in the nav point.
+    MaxAltitude,        ///< Transits at fixed high altitude (80m) for safe clearance.
+    TerrainSkimming     ///< Transits at fixed AGL (5m above ground level) following terrain contours.
 };
 
+/**
+ * @brief Represents a single navigation waypoint in 3D space.
+ */
 struct NavPoint {
-    double x, y, z;
+    double x, y, z;     ///< 3D coordinates of the waypoint (meters).
 };
 
+/**
+ * @brief Represents a single drone in the simulation.
+ * 
+ * Contains all state information for a drone including position, velocity,
+ * battery status, and navigation queue. Drones are uniquely identified by ID.
+ */
 struct Drone {
-    int id;
-    double x, y, z;        // Position in 3D space
-    double vx, vy, vz;     // Velocity vectors (m/s)
-    double batteryLevel;   // Percentage (0.0 - 100.0). Landed drones charge +0.05%/tick.
-    DroneStatus status;
-    double signalStrength; // 0.0 - 1.0
-    double radius;         // Bounding radius in meters for hard collisions.
+    // Identification & State
+    int id;                         ///< Unique identifier for the drone.
     
-    NavigationMode navMode;
-    std::vector<NavPoint> navQueue;
-    bool returningToBase;  ///< True if drone is performing RTB sequence.
-    bool proximityAlert;   ///< True if drone is currently inside a repulsion field.
+    // 3D Kinematics
+    double x, y, z;                 ///< Position in 3D space (meters).
+    double vx, vy, vz;              ///< Velocity vectors (meters per second).
+    
+    // Power Management
+    double batteryLevel;            ///< Percentage (0.0 - 100.0). Landed drones charge at +0.05% per tick.
+    
+    // Status & Properties
+    DroneStatus status;             ///< Current operational state of the drone.
+    double signalStrength;          ///< Radio signal strength (0.0 - 1.0), decays with distance.
+    double radius;                  ///< Bounding radius in meters for collision detection.
+    
+    // Navigation
+    NavigationMode navMode;         ///< How altitude is managed during flight.
+    std::vector<NavPoint> navQueue; ///< Queue of waypoints to navigate to in order.
+    
+    // Special States
+    bool returningToBase;           ///< True if drone is performing RTB (Return To Base) sequence.
+    bool proximityAlert;            ///< True if drone is currently inside a repulsion field or near obstacles.
 
+    /**
+     * @brief Constructs a Drone with default initial state.
+     * 
+     * Initializes the drone at origin with full battery, hovering in manual mode,
+     * and no active navigation targets.
+     * 
+     * @param _id The unique identifier for this drone.
+     */
     Drone(int _id) : id(_id), x(0), y(0), z(0), vx(0), vy(0), vz(0), 
                      batteryLevel(100.0), status(DroneStatus::Flying), 
                      signalStrength(1.0), radius(0.3), navMode(NavigationMode::Manual),
