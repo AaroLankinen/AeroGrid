@@ -284,6 +284,57 @@ private:
      */
     void processHangarLogic();
     
+    /**
+     * @brief Updates positions of dynamic obstacles.
+     * @param dt Time step in seconds.
+     */
+    void updateDynamicObstacles(double dt);
+
+    /**
+     * @brief Handles charging logic for drones currently in the hangar.
+     */
+    void updateHangarDrones();
+
+    /**
+     * @brief Evaluates drone-to-drone collisions and applies repulsion forces.
+     */
+    void handleDroneToDroneCollisions();
+
+    /**
+     * @brief Main state machine and physics update for a single drone.
+     * @param drone Reference to the drone to update.
+     * @param dt Time step in seconds.
+     */
+    void updateDroneState(Drone& drone, double dt);
+
+    /**
+     * @brief Calculates intended velocity based on flight status and mission queue.
+     * @param drone Reference to the drone.
+     * @param groundHeight Terrain altitude at drone's current position.
+     * @param dt Time step in seconds.
+     */
+    void calculateDroneMovement(Drone& drone, double groundHeight, double dt);
+
+    /**
+     * @brief Calculates repulsion from static and dynamic obstacles.
+     * @param drone Reference to the drone.
+     * @param groundHeight Terrain altitude at drone's current position.
+     */
+    void applyObstacleAvoidance(Drone& drone, double groundHeight);
+
+    /**
+     * @brief Checks if the drone has touched the ground and determines if it landed or crashed.
+     * @param drone Reference to the drone.
+     * @param groundHeight Terrain altitude at drone's current position.
+     */
+    void checkGroundContact(Drone& drone, double groundHeight);
+
+    /**
+     * @brief Updates signal strength based on distance to base station.
+     * @param drone Reference to the drone.
+     */
+    void updateDroneSignalStrength(Drone& drone);
+
     // Simulation State
     std::vector<Drone> m_drones;                ///< Currently deployed drones.
     std::vector<Drone> m_baseInventory;         ///< Drones in the hangar.
