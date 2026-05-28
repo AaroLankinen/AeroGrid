@@ -33,6 +33,8 @@ private:
     void worldToScreen(double worldX, double worldY, double& outScreenX, double& outScreenY) const;
     // Helper to update cached view parameters based on current zoom and pan
     void updateViewMetrics() const;
+    bool checkNavPointHit(const QPointF& mousePos, double worldX, double worldY);
+    bool checkDroneHit(double worldX, double worldY, bool ctrlPressed);
     void getClampedWorldCenter(double& outCenterX, double& outCenterY) const;
     double getEffectivePixelsPerMeter() const;
 
@@ -48,9 +50,6 @@ private:
     double m_panY = 0.0;
     bool m_panning = false;
     QPoint m_panLastPos;
-    static constexpr double MIN_ZOOM = 0.5;
-    static constexpr double MAX_ZOOM = 5.0;
-    static constexpr double ZOOM_FACTOR = 1.2;  // Multiplier per scroll tick
     
     // Cached view parameters (updated each paint)
     mutable double m_cachedSrcX = 0.0;

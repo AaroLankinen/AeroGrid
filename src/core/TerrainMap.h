@@ -146,6 +146,9 @@ private:
      * @return Raw noise value.
      */
     double calculateRawNoise(double x, double y) const;
+    void initializeNoise(unsigned int seed);
+    void generateStaticObstacles(unsigned int seed);
+    void calculateWaterThreshold(double landProp);
     
     /**
      * @brief Computes a single Perlin noise value at 3D coordinates.

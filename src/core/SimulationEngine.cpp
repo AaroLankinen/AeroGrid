@@ -6,6 +6,7 @@
 #include <mutex>
 #include <cmath>
 #include <algorithm>
+#include "Constants.h"
 
 SimulationEngine::SimulationEngine(QObject* parent) 
     : QObject(parent), m_running(false), m_workerThread(nullptr) {
@@ -38,7 +39,7 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp, int w
         m_baseY = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * basePlacementRangeY) - basePlacementRangeY;
         // If the user specified 0% land, we must break to avoid infinite loop
         if (++safetyCounter > 2000) break; 
-    } while (m_terrain.getHeightAt(m_baseX, m_baseY) < 1.0);
+    } while (m_terrain.getHeightAt(m_baseX, m_baseY) < AeroGrid::World::LAND_THRESHOLD);
 
     // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)
     m_dynamicObstacles.clear();
@@ -64,7 +65,7 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp, int w
     }
 
     // 3. Initialize Hangar with 12 drones
-    for(int i = 0; i < 12; ++i) {
+    for(int i = 0; i < AeroGrid::World::DEFAULT_INVENTORY_COUNT; ++i) {
         m_baseInventory.emplace_back(i);
     }
 
@@ -109,7 +110,7 @@ void SimulationEngine::processHangarLogic() {
 }
 
 void SimulationEngine::run() {
-    const double dt = 0.05;
+    const double dt = AeroGrid::Physics::DT;
     while (m_running) {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -122,7 +123,7 @@ void SimulationEngine::run() {
             handleDroneToDroneCollisions();
         }
         emit simulationUpdated();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(AeroGrid::Physics::TICK_MS));
     }
 }
 
@@ -142,7 +143,7 @@ void SimulationEngine::updateDynamicObstacles(double dt) {
 
 void SimulationEngine::updateHangarDrones() {
     for (auto& drone : m_baseInventory) {
-        drone.batteryLevel = std::min(100.0, drone.batteryLevel + 0.5); 
+        drone.batteryLevel = std::min(100.0, drone.batteryLevel + AeroGrid::Physics::HANGAR_CHARGE_RATE); 
     }
 }
 
@@ -151,7 +152,7 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
     drone.proximityAlert = false; 
 
     if (drone.status == DroneStatus::Landed) {
-        drone.batteryLevel = std::min(100.0, drone.batteryLevel + 0.05);
+        drone.batteryLevel = std::min(100.0, drone.batteryLevel + AeroGrid::Physics::LANDED_CHARGE_RATE);
         return;
     }
 
@@ -178,16 +179,14 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
 
 void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight, double dt) {
     if (drone.batteryLevel <= 0) {
-        drone.vz -= 9.81 * dt; // gravity
+        drone.vz -= AeroGrid::Physics::GRAVITY * dt; 
         drone.vx *= 0.99;
         drone.vy *= 0.99;
         return;
     }
 
     double altitudeAGL = std::max(0.0, drone.z - groundHeight);
-    double t_fast = std::max(0.0, (altitudeAGL - 5.0) / 5.0);
-    double t_slow = std::min(altitudeAGL, 5.0) / 1.5;
-    double batteryRequiredToLand = (t_fast * 2.0) + (t_slow * 1.3) + 5.0;
+    double batteryRequiredToLand = drone.calculateBatteryRequiredToLand(groundHeight);
 
     if (drone.status == DroneStatus::Flying && drone.batteryLevel <= batteryRequiredToLand) {
         drone.status = DroneStatus::EmergencyLanding;
@@ -196,7 +195,7 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
 
     if (drone.status == DroneStatus::Landing || drone.status == DroneStatus::EmergencyLanding) {
         drone.vx = drone.vy = 0;
-        drone.vz = (altitudeAGL > 5.0) ? -5.0 : -1.5;
+        drone.vz = (altitudeAGL > AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL) ? AeroGrid::Physics::LANDING_FAST_SPEED : AeroGrid::Physics::LANDING_SLOW_SPEED;
     } else if (!drone.navQueue.empty()) {
         const auto& target = drone.navQueue.front();
         double offsetX = (drone.id % 3 - 1) * 4.0;
@@ -205,15 +204,15 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
         double ty = target.y + offsetY;
         double tz = target.z;
 
-        if (drone.navMode == NavigationMode::MaxAltitude) tz = 80.0;
-        else if (drone.navMode == NavigationMode::TerrainSkimming) tz = groundHeight + 5.0;
+        if (drone.navMode == NavigationMode::MaxAltitude) tz = AeroGrid::Physics::STANDARD_CRUISE_ALTITUDE;
+        else if (drone.navMode == NavigationMode::TerrainSkimming) tz = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
 
         double dx = tx - drone.x;
         double dy = ty - drone.y;
         double dz = tz - drone.z;
         double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
 
-        if (dist > 1.0) {
+        if (dist > AeroGrid::Physics::MIN_DRONE_DIST) {
             drone.vx = (dx / dist) * 5.0;
             drone.vy = (dy / dist) * 5.0;
             drone.vz = (dz / dist) * 5.0;
@@ -223,10 +222,10 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
             drone.vx = drone.vy = drone.vz = 0;
         }
     } else {
-        double minSafeZ = groundHeight + 5.0;
+        double minSafeZ = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
         if (drone.z < minSafeZ - 0.1) {
             drone.vx = drone.vy = 0;
-            drone.vz = 1.5;
+            drone.vz = std::abs(AeroGrid::Physics::LANDING_SLOW_SPEED);
         } else {
             drone.vx = drone.vy = drone.vz = 0;
             if (drone.z < minSafeZ) drone.z = minSafeZ;
@@ -234,7 +233,7 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
     }
 
     double speed = std::sqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
-    drone.batteryLevel -= (0.05 + speed * 0.01);
+    drone.batteryLevel -= (AeroGrid::Physics::HOVER_CONSUMPTION + speed * AeroGrid::Physics::VELOCITY_CONSUMPTION_FACTOR);
 }
 
 void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight) {
@@ -244,15 +243,14 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dy = drone.y - obs.y;
         double dist2D = std::sqrt(dx*dx + dy*dy);
         double minDist = drone.radius + obs.radius;
-        const double obsSafetyMargin = 5.0;
-        double safeZone = minDist + obsSafetyMargin;
+        double safeZone = minDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
 
         double obsGroundHeight = m_terrain.getHeightAt(obs.x, obs.y);
         double absoluteObsHeight = obsGroundHeight + obs.height;
         if (drone.z < absoluteObsHeight + 2.0) {
             if (dist2D < safeZone && dist2D > 0.001) {
                 drone.proximityAlert = true;
-                double push = (safeZone - dist2D) * 0.2;
+                double push = (safeZone - dist2D) * AeroGrid::Physics::REPULSION_FORCE_STATIC;
                 if (drone.status == DroneStatus::Flying) {
                     drone.vx += (dx / dist2D) * push;
                     drone.vy += (dy / dist2D) * push;
@@ -274,12 +272,11 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dz = drone.z - obs.z;
         double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
         double minDist = drone.radius + obs.radius;
-        const double dynamicSafetyMargin = 5.0;
-        double safeZone = minDist + dynamicSafetyMargin;
+        double safeZone = minDist + AeroGrid::Physics::DYNAMIC_OBS_SAFETY_MARGIN;
 
         if (dist < safeZone && dist > 0.001) {
             drone.proximityAlert = true;
-            double push = (safeZone - dist) * 0.3;
+            double push = (safeZone - dist) * AeroGrid::Physics::REPULSION_FORCE_DYNAMIC;
             if (drone.status == DroneStatus::Flying) {
                 drone.vx += (dx / dist) * push;
                 drone.vy += (dy / dist) * push;
@@ -296,7 +293,7 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
 
 void SimulationEngine::checkGroundContact(Drone& drone, double groundHeight) {
     if (drone.z <= groundHeight + 0.05 && drone.vz < 0) {
-        if (std::abs(drone.vz) < 2.0) {
+        if (std::abs(drone.vz) < AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
             drone.status = DroneStatus::Landed;
         } else {
             drone.status = DroneStatus::Crashed;
@@ -311,8 +308,7 @@ void SimulationEngine::updateDroneSignalStrength(Drone& drone) {
     double sDy = drone.y - m_baseY;
     double sDz = drone.z;
     double distToBase = std::sqrt(sDx*sDx + sDy*sDy + sDz*sDz);
-    const double maxRange = 300.0;
-    drone.signalStrength = std::max(0.0, 1.0 - (distToBase / maxRange));
+    drone.signalStrength = std::max(0.0, 1.0 - (distToBase / AeroGrid::World::SIGNAL_MAX_RANGE));
 }
 
 void SimulationEngine::handleDroneToDroneCollisions() {
@@ -330,12 +326,12 @@ void SimulationEngine::handleDroneToDroneCollisions() {
             if (dist < 0.001) continue; 
 
             double minDist = d1.radius + d2.radius;
-            double safeZone = minDist + 4.0;
+            double safeZone = minDist + AeroGrid::Physics::DRONE_TO_DRONE_SAFETY_BUFFER;
 
             if (dist < safeZone) {
                 d1.proximityAlert = true;
                 d2.proximityAlert = true;
-                double push = (safeZone - dist) * 0.2;
+                double push = (safeZone - dist) * AeroGrid::Physics::REPULSION_FORCE_DRONE;
                 double nx = dx / dist; double ny = dy / dist; double nz = dz / dist;
 
                 if (d1.status != DroneStatus::Landed) {
@@ -438,11 +434,9 @@ void SimulationEngine::takeOff(int id) {
     for (auto& drone : m_drones) {
         if (drone.id == id && drone.status == DroneStatus::Landed) {
             double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
-            // Safety check: Ensure battery is sufficient to reach and land from 5m safe hover altitude
-            // Requirement for 5m AGL: (5.0 / 1.5) * 1.3 + 5.0 = ~9.33%
-            double batteryRequiredForSafeHover = (5.0 / 1.5) * 1.3 + 5.0;
+            double batteryRequiredToTakeoff = drone.calculateBatteryRequiredToLand(groundHeight);
 
-            if (drone.batteryLevel > batteryRequiredForSafeHover) {
+            if (drone.batteryLevel > batteryRequiredToTakeoff) {
                 drone.status = DroneStatus::Flying;
                 drone.vz = 2.0; // Initial ascent thrust
                 break;

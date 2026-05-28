@@ -1,5 +1,7 @@
 #pragma once
 #include <vector>
+#include <algorithm>
+#include "Constants.h"
 
 /**
  * @brief Defines the possible operational states of a drone.
@@ -71,6 +73,22 @@ struct Drone {
      */
     Drone(int _id) : id(_id), x(0), y(0), z(0), vx(0), vy(0), vz(0), 
                      batteryLevel(100.0), status(DroneStatus::Flying), 
-                     signalStrength(1.0), radius(0.3), navMode(NavigationMode::Manual),
+                     signalStrength(1.0), radius(AeroGrid::Physics::DRONE_RADIUS), navMode(NavigationMode::Manual),
                      returningToBase(false), proximityAlert(false) {}
+
+    /**
+     * @brief Calculates the battery percentage required to perform a safe landing from current altitude.
+     * 
+     * @param groundHeight The terrain altitude at current position.
+     * @return Required battery percentage.
+     */
+    double calculateBatteryRequiredToLand(double groundHeight) const {
+        using namespace AeroGrid::Physics;
+        double altitudeAGL = std::max(0.0, z - groundHeight);
+        
+        double t_fast = std::max(0.0, (altitudeAGL - MIN_SAFE_ALTITUDE_AGL) / std::abs(LANDING_FAST_SPEED));
+        double t_slow = std::min(altitudeAGL, MIN_SAFE_ALTITUDE_AGL) / std::abs(LANDING_SLOW_SPEED);
+        
+        return (t_fast * FAST_LANDING_BATTERY_COST) + (t_slow * SLOW_LANDING_BATTERY_COST) + LANDING_SAFETY_MARGIN;
+    }
 };

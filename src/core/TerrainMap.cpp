@@ -3,6 +3,7 @@
 #include <numeric>
 #include <random>
 #include <algorithm>
+#include "Constants.h"
 
 namespace {
     // Perlin Noise helper functions
@@ -18,13 +19,20 @@ namespace {
 
 TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize)
     : m_width(width), m_height(height), m_cellSize(cellSize), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
-    // Initialize permutation table for Perlin noise
+    initializeNoise(seed);
+    generateStaticObstacles(seed);
+    calculateWaterThreshold(landProp);
+}
+
+void TerrainMap::initializeNoise(unsigned int seed) {
     m_permutation.resize(256);
     std::iota(m_permutation.begin(), m_permutation.end(), 0);
     std::default_random_engine engine(seed); 
     std::shuffle(m_permutation.begin(), m_permutation.end(), engine);
     m_permutation.insert(m_permutation.end(), m_permutation.begin(), m_permutation.end());
+}
 
+void TerrainMap::generateStaticObstacles(unsigned int seed) {
     // Procedural Static Obstacle Spawning
     std::srand(seed + 1); 
     const double halfWorldWidth = (m_width * m_cellSize) * 0.5;
@@ -64,13 +72,15 @@ TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height
         double height = 10.0 + (std::rand() % 20);
         m_staticObstacles.push_back({i, ox, oy, radius, height});
     }
+}
 
+void TerrainMap::calculateWaterThreshold(double landProp) {
     // Optimized Proportion Calculation:
     // Perlin noise is smooth and spatially correlated. Sampling every 4th pixel (stride 4)
     // provides a highly accurate distribution while performing 1/16th of the calculations.
     const int sampleStride = 4;
     std::vector<double> samples;
-    samples.reserve((m_width / sampleStride) * (m_height / sampleStride));
+    samples.reserve((m_width / sampleStride + 1) * (m_height / sampleStride + 1));
 
     for (int y = 0; y < m_height; y += sampleStride) {
         for (int x = 0; x < m_width; x += sampleStride) {

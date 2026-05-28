@@ -4,6 +4,7 @@
 #include <QWheelEvent>
 #include <QtGlobal>
 #include <cmath>
+#include "Constants.h"
 
 TerrainView::TerrainView(SimulationEngine* engine, QWidget* parent)
     : QWidget(parent), m_engine(engine) {
@@ -137,63 +138,75 @@ void TerrainView::setSelectedIds(const std::set<int>& ids) {
     update();
 }
 
+bool TerrainView::checkNavPointHit(const QPointF& mousePos, double worldX, double worldY) {
+    auto drones = m_engine->getDroneData();
+    for (const auto& drone : drones) {
+        for (int i = 0; i < (int)drone.navQueue.size(); ++i) {
+            const auto& pt = drone.navQueue[i];
+            double dx = pt.x - worldX;
+            double dy = pt.y - worldY;
+            if (std::sqrt(dx*dx + dy*dy) < 3.0) { // 3m hit box
+                emit navPointClicked(drone.id, i);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool TerrainView::checkDroneHit(double worldX, double worldY, bool ctrlPressed) {
+    auto drones = m_engine->getDroneData();
+    for (const auto& drone : drones) {
+        double dx = drone.x - worldX;
+        double dy = drone.y - worldY;
+        if (std::sqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
+            if (ctrlPressed) {
+                if (m_selectedIds.count(drone.id)) m_selectedIds.erase(drone.id);
+                else m_selectedIds.insert(drone.id);
+            } else {
+                m_selectedIds = {drone.id};
+            }
+            emit dronesSelected(m_selectedIds);
+            return true;
+        }
+    }
+    return false;
+}
+
 void TerrainView::mousePressEvent(QMouseEvent* event) {
     double worldX, worldY;
     screenToWorld(event->position().x(), event->position().y(), worldX, worldY);
     bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
 
-    if (event->button() == Qt::MiddleButton) {
+    switch (event->button()) {
+    case Qt::MiddleButton:
         m_panning = true;
         m_panLastPos = event->pos();
         setCursor(Qt::ClosedHandCursor);
-        return;
-    }
+        break;
 
-    if (event->button() == Qt::LeftButton) {
-        auto drones = m_engine->getDroneData();
-        
-        // First check if user clicked on a navigation point of a drone
-        for (const auto& drone : drones) {
-            for (int i = 0; i < (int)drone.navQueue.size(); ++i) {
-                const auto& pt = drone.navQueue[i];
-                double dx = pt.x - worldX;
-                double dy = pt.y - worldY;
-                if (std::sqrt(dx*dx + dy*dy) < 3.0) { // 3m hit box for path points
-                    emit navPointClicked(drone.id, i);
-                    return;
-                }
-            }
-        }
-
-        bool droneHit = false;
-        for (const auto& drone : drones) {
-            double dx = drone.x - worldX;
-            double dy = drone.y - worldY;
-            if (std::sqrt(dx*dx + dy*dy) < 5.0) { // 5m click radius
-                if (ctrlPressed) {
-                    if (m_selectedIds.count(drone.id)) m_selectedIds.erase(drone.id);
-                    else m_selectedIds.insert(drone.id);
-                } else {
-                    m_selectedIds = {drone.id};
-                }
-                emit dronesSelected(m_selectedIds);
-                droneHit = true;
-                break;
-            }
-        }
-
-        if (!droneHit) {
+    case Qt::LeftButton:
+        if (checkNavPointHit(event->position(), worldX, worldY)) return;
+        if (checkDroneHit(worldX, worldY, ctrlPressed)) break;
+        else {
             if (!ctrlPressed) {
                 m_selectedIds.clear();
                 emit dronesSelected(m_selectedIds);
             }
             m_origin = event->pos();
-            if (!m_rubberBand) m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
+            if (!m_rubberBand)
+                m_rubberBand = new QRubberBand(QRubberBand::Rectangle, this);
             m_rubberBand->setGeometry(QRect(m_origin, QSize()));
             m_rubberBand->show();
         }
-    } else if (event->button() == Qt::RightButton) {
+        break;
+
+    case Qt::RightButton:
         emit mapTargetSet(worldX, worldY);
+        break;
+
+    default:
+        break;
     }
     update();
 }
@@ -262,10 +275,11 @@ void TerrainView::wheelEvent(QWheelEvent* event) {
     
     // Update zoom level with dynamic limits
     double oldZoom = m_zoomLevel;
+    using namespace AeroGrid::UI;
     if (event->angleDelta().y() > 0) {
         m_zoomLevel = std::min(maxZoomDynamic, m_zoomLevel * ZOOM_FACTOR);
     } else {
-        m_zoomLevel = std::max(MIN_ZOOM, m_zoomLevel / ZOOM_FACTOR);
+        m_zoomLevel = std::max(AeroGrid::UI::MIN_ZOOM, m_zoomLevel / ZOOM_FACTOR);
     }
     
     // Only adjust pan if zoom actually changed

@@ -1,6 +1,7 @@
 #include "TelemetryModel.h"
 #include <QBrush>
 #include <QFont>
+#include "Constants.h"
 
 TelemetryModel::TelemetryModel(SimulationEngine* engine, DroneListType type, QObject* parent) 
     : QAbstractTableModel(parent), m_engine(engine), m_type(type) {
@@ -23,15 +24,12 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
     const auto& drone = m_cachedDrones[index.row()];
 
     if (role == Qt::BackgroundRole) {
-        if (drone.status == DroneStatus::Crashed) return QBrush(QColor(255, 200, 200)); // Light Red
+        if (drone.status == DroneStatus::Crashed) return QBrush(AeroGrid::UI::COLOR_TABLE_CRASHED); 
 
         double groundHeight = m_engine->getTerrain().getHeightAt(drone.x, drone.y);
-        double altitudeAGL = std::max(0.0, drone.z - groundHeight);
-        double t_fast = std::max(0.0, (altitudeAGL - 5.0) / 5.0);
-        double t_slow = std::min(altitudeAGL, 5.0) / 1.5;
-        double batteryRequiredToLand = (t_fast * 2.0) + (t_slow * 1.3) + 5.0;
+        double batteryRequiredToLand = drone.calculateBatteryRequiredToLand(groundHeight);
 
-        if (drone.batteryLevel < batteryRequiredToLand) return QBrush(QColor(255, 230, 150)); // Light Orange/Yellow
+        if (drone.batteryLevel < batteryRequiredToLand) return QBrush(AeroGrid::UI::COLOR_TABLE_LOW_BATTERY); 
         return QVariant();
     }
 
