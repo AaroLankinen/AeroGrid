@@ -54,6 +54,11 @@ namespace UI {
     // Table Colors
     inline const QColor COLOR_TABLE_CRASHED = QColor(255, 200, 200);
     inline const QColor COLOR_TABLE_LOW_BATTERY = QColor(255, 230, 150);
+
+    // Zoom Parameters
+    constexpr double MIN_ZOOM = 0.5;
+    constexpr double MAX_ZOOM = 5.0;
+    constexpr double ZOOM_FACTOR = 1.2;
 }
 
 /**

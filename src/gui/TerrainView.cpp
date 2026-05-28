@@ -2,14 +2,28 @@
 #include <QPainter>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QResizeEvent>
 #include <QtGlobal>
 #include <cmath>
 #include "Constants.h"
 
 TerrainView::TerrainView(SimulationEngine* engine, QWidget* parent)
     : QWidget(parent), m_engine(engine) {
-    setMinimumSize(400, 400);
+    setMinimumSize(200, 200);
+    // Maintain square aspect ratio policy
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     renderTerrainCache();
+}
+
+void TerrainView::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    // Force the widget width to match its height to maintain a square viewport.
+    // This ensures that extra horizontal space in the layout is given to side panels.
+    if (height() > 0 && width() != height()) {
+        QMetaObject::invokeMethod(this, [this](){
+            setFixedWidth(height());
+        }, Qt::QueuedConnection);
+    }
 }
 
 void TerrainView::resetView() {

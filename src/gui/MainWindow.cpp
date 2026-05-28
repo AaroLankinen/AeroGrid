@@ -111,9 +111,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         m_model->sort(column, order);
     });
 
-    middleLayout->addWidget(hangarContainer);
-    middleLayout->addWidget(m_terrainView, 1);  // Give map most space
-    middleLayout->addWidget(deployedContainer);
+    // Constrain map to a central square and let tables fill extra width
+    // Stretch factors 1, 0, 1 make the side panels greedy.
+    middleLayout->addWidget(hangarContainer, 1);
+    middleLayout->addWidget(m_terrainView, 0); 
+    middleLayout->addWidget(deployedContainer, 1);
     mainLayout->addLayout(middleLayout, 1);  // Give middle section most vertical space
 
     // --- 3. Bottom Section: Drone Controls ---
