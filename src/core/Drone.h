@@ -77,7 +77,10 @@ struct Drone {
                      returningToBase(false), proximityAlert(false) {}
 
     /**
-     * @brief Calculates the battery percentage required to perform a safe landing from current altitude.
+     * @brief Centralized logic for calculating the minimum battery required for a safe descent.
+     * 
+     * Accounts for different descent speeds at different altitudes (fast/slow phases)
+     * and includes a safety margin defined in Physics::LANDING_SAFETY_MARGIN.
      * 
      * @param groundHeight The terrain altitude at current position.
      * @return Required battery percentage.

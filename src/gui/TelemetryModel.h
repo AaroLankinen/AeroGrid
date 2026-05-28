@@ -36,8 +36,9 @@ enum class DroneListType {
  * 6. Proximity Alert (⚠️ NEAR OBJECT or Clear)
  * 
  * @section colors Color Coding
- * - Light Red (255, 200, 200): Crashed drones
- * - Light Orange (255, 230, 150): Low battery (insufficient to land safely)
+ * - Light Red (UI::COLOR_TABLE_CRASHED): Crashed drones
+ * - Light Orange (UI::COLOR_TABLE_LOW_BATTERY): Battery level below safe landing 
+ *   threshold as calculated by the drone's flight physics.
  * - White/Default: Normal operation
  * 
  * @section selection Selection Tracking

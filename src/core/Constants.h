@@ -1,7 +1,16 @@
 #pragma once
 #include <QColor>
 
+/**
+ * @brief Centralized configuration for the AeroGrid project.
+ * 
+ * This namespace contains all physical, environmental, and UI constants
+ * to ensure consistency across the simulation engine and the graphical interface.
+ */
 namespace AeroGrid {
+/**
+ * @brief Physical simulation and drone behavior parameters.
+ */
 namespace Physics {
     constexpr double GRAVITY = 9.81;
     constexpr double DT = 0.05;
@@ -38,17 +47,18 @@ namespace Physics {
     constexpr double REPULSION_FORCE_DRONE = 0.2;
 }
 
+/**
+ * @brief Constants related to the Graphical User Interface.
+ */
 namespace UI {
     // Table Colors
     inline const QColor COLOR_TABLE_CRASHED = QColor(255, 200, 200);
     inline const QColor COLOR_TABLE_LOW_BATTERY = QColor(255, 230, 150);
-
-    // Zoom Parameters
-    constexpr double MIN_ZOOM = 0.5;
-    constexpr double MAX_ZOOM = 5.0;
-    constexpr double ZOOM_FACTOR = 1.2;
 }
 
+/**
+ * @brief Global world and environmental parameters.
+ */
 namespace World {
     constexpr int DEFAULT_INVENTORY_COUNT = 12;
     constexpr double LAND_THRESHOLD = 1.0;

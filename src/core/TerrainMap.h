@@ -48,7 +48,8 @@ struct DynamicObstacle {
  * 
  * @section landWater Land vs Water
  * Heights below 1.0 represent water (impassable). Heights >= 1.0 represent
- * land (passable terrain). The ratio is controlled by landProp during creation.
+ * land (passable terrain). Cutoff is determined statistically via calculateWaterThreshold
+ * to match the requested landProp.
  * 
  * @section obstacles Obstacle Placement
  * Static obstacles are generated with collision avoidance to prevent overlaps.
@@ -146,8 +147,25 @@ private:
      * @return Raw noise value.
      */
     double calculateRawNoise(double x, double y) const;
+    
+    /**
+     * @brief Generates the initial random permutation table for Perlin noise.
+     */
     void initializeNoise(unsigned int seed);
+    
+    /**
+     * @brief Procedurally places buildings on land while respecting safety margins.
+     * 
+     * Keeps obstacles away from the central helipad zone and prevents overlaps.
+     */
     void generateStaticObstacles(unsigned int seed);
+    
+    /**
+     * @brief Calculates the noise value threshold for the shoreline.
+     * 
+     * Samples the noise field and uses O(N) selection to find a threshold that
+     * results in the desired land-to-water ratio.
+     */
     void calculateWaterThreshold(double landProp);
     
     /**

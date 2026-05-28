@@ -33,7 +33,19 @@ private:
     void worldToScreen(double worldX, double worldY, double& outScreenX, double& outScreenY) const;
     // Helper to update cached view parameters based on current zoom and pan
     void updateViewMetrics() const;
+    
+    /**
+     * @brief Performs hit detection against the navigation waypoint queue of all drones.
+     * @return True if a waypoint was hit and processed.
+     */
     bool checkNavPointHit(const QPointF& mousePos, double worldX, double worldY);
+
+    /**
+     * @brief Performs hit detection against drone bodies.
+     * 
+     * Handles single selection and toggle selection via Ctrl modifier.
+     * @return True if a drone was hit and processed.
+     */
     bool checkDroneHit(double worldX, double worldY, bool ctrlPressed);
     void getClampedWorldCenter(double& outCenterX, double& outCenterY) const;
     double getEffectivePixelsPerMeter() const;

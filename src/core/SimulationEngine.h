@@ -13,7 +13,7 @@
  * The SimulationEngine is the core of AeroGrid, managing:
  * - Real-time physics simulation at 20Hz (50ms per frame)
  * - Multi-drone kinematics, collision detection, and avoidance
- * - Battery consumption and charging simulation
+ * - Battery consumption and charging simulation driven by AeroGrid::Physics constants
  * - Terrain interaction and obstacle avoidance
  * - Navigation queue processing and formation flying
  * 
@@ -28,14 +28,14 @@
  * 
  * @section collision Collision System
  * - Passive Avoidance: Drones in proximity generate repulsion forces
- * - Static Obstacles: Terrain-based buildings and structures
+ * - Static Obstacles: Buildings placed by TerrainMap; spacing uses Physics::STATIC_OBS_SAFETY_MARGIN
  * - Dynamic Obstacles: Moving entities like birds or unauthorized aircraft
- * - Drone-to-Drone: Symmetrical repulsion maintaining 4m safety buffer
+ * - Drone-to-Drone: Symmetrical repulsion maintaining Physics::DRONE_TO_DRONE_SAFETY_BUFFER
  * 
  * @section battery Battery Management
- * - Base Charge Rate: Landed drones gain 0.05% per tick (0.5% per second)
- * - Hangar Charge Rate: 0.5% per tick (5% per second) for fast equipment cycling
- * - Flight Consumption: 0.05% hovering + 0.01% per m/s of velocity
+ * - Base Charge Rate: Landed drones gain Physics::LANDED_CHARGE_RATE per tick
+ * - Hangar Charge Rate: Accelerated Physics::HANGAR_CHARGE_RATE for fast cycling
+ * - Flight Consumption: Physics::HOVER_CONSUMPTION plus a factor based on speed
  * - Emergency Landing: Triggered when battery drops below safe landing threshold
  * 
  * @section formation Formation Flying
@@ -219,7 +219,7 @@ public:
      * @brief Commands a drone to take off from the ground.
      * 
      * Changes the drone's status from Landed to Flying and initiates upward movement
-     * (vz = 2.0 m/s). Battery level must be sufficient to safely hover (>9.33%).
+     * (vz = 2.0 m/s). Battery level must be sufficient to safely hover and land.
      * 
      * @param id The ID of the drone to command. Must be in Landed state.
      * 
