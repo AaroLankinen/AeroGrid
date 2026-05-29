@@ -197,7 +197,7 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp, int w
         m_baseX = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * basePlacementRangeX) - basePlacementRangeX;
         m_baseY = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * basePlacementRangeY) - basePlacementRangeY;
         // If the user specified 0% land, we must break to avoid infinite loop
-        if (++safetyCounter > 2000) break; 
+        if (++safetyCounter > AeroGrid::World::SPAWN_SAFETY_LIMIT) break; 
     } while (m_terrain.getHeightAt(m_baseX, m_baseY) < AeroGrid::World::LAND_THRESHOLD);
 
     // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)

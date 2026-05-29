@@ -50,13 +50,13 @@ void TerrainView::renderTerrainCache() {
             double height = terrain.getHeightAt(worldX, worldY);
             
             // Procedural Interpretation: Low heights represent water features
-            if (height < 1.0) {
+            if (height < AeroGrid::World::LAND_THRESHOLD) {
                 // Water (Lakes / Rivers)
                 int blueVal = qBound(150, 200 + static_cast<int>(height * 20), 255);
                 m_terrainCache.setPixel(x, y, qRgb(20, 60, blueVal));
             } else {
                 // Land (Plains to Peaks)
-                int val = qBound(0, static_cast<int>((height - 1.0) * 12), 255);
+                int val = qBound(0, static_cast<int>((height - AeroGrid::World::LAND_THRESHOLD) * 12), 255);
                 m_terrainCache.setPixel(x, y, qRgb(val, 150 + val / 2, 50));
             }
         }
@@ -344,11 +344,11 @@ void TerrainView::paintEvent(QPaintEvent*) {
     QPointF basePos = worldToScreenOnScreen(m_engine->getBaseX(), m_engine->getBaseY());
     painter.setPen(QPen(Qt::white, 2));
     painter.setBrush(Qt::darkGray);
-    painter.drawEllipse(basePos, 15, 15);
+    painter.drawEllipse(basePos, AeroGrid::UI::Map::BASE_RADIUS, AeroGrid::UI::Map::BASE_RADIUS);
     painter.drawText(QRectF(basePos.x()-10, basePos.y()-10, 20, 20), Qt::AlignCenter, "H");
 
     // Draw Static Obstacles (High Contrast Red)
-    painter.setBrush(QColor(255, 0, 0, 180)); 
+    painter.setBrush(AeroGrid::UI::Map::COLOR_STATIC_OBSTACLE); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : terrain.getObstacles()) {
         if (obs.shape == ObstacleShape::Cylinder) {
@@ -366,7 +366,7 @@ void TerrainView::paintEvent(QPaintEvent*) {
     }
 
     // Draw Dynamic Obstacles (High Contrast Orange)
-    painter.setBrush(QColor(255, 140, 0, 200)); 
+    painter.setBrush(AeroGrid::UI::Map::COLOR_DYNAMIC_OBSTACLE); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : m_engine->getDynamicObstacleData()) {
         QPointF screenPos = worldToScreenOnScreen(obs.x, obs.y);
@@ -398,12 +398,12 @@ void TerrainView::paintEvent(QPaintEvent*) {
         float px = dronePos.x();
         float py = dronePos.y();
 
-        QColor color = (drone.status == DroneStatus::Crashed) ? Qt::red : Qt::cyan;
-        if (m_selectedIds.count(drone.id)) color = Qt::yellow;
+        QColor color = (drone.status == DroneStatus::Crashed) ? AeroGrid::UI::Map::COLOR_DRONE_CRASHED : AeroGrid::UI::Map::COLOR_DRONE_NORMAL;
+        if (m_selectedIds.count(drone.id)) color = AeroGrid::UI::Map::COLOR_DRONE_SELECTED;
         
         painter.setBrush(color);
         painter.setPen(Qt::black);
-        painter.drawEllipse(QPointF(px, py), 8, 8);
+        painter.drawEllipse(QPointF(px, py), AeroGrid::UI::Map::DRONE_RADIUS, AeroGrid::UI::Map::DRONE_RADIUS);
         
         painter.setPen(Qt::white);
         painter.drawText(px + 8, py + 5, QString("D%1").arg(drone.id));

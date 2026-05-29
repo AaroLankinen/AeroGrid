@@ -32,7 +32,7 @@ class DroneCameraWidget : public QWidget {
 public:
     DroneCameraWidget(int droneId, SimulationEngine* engine, QWidget* parent = nullptr)
         : QWidget(parent), m_droneId(droneId), m_engine(engine) {
-        setFixedSize(240, 135); // 16:9 aspect ratio
+        setFixedSize(AeroGrid::UI::Camera::WIDGET_WIDTH, AeroGrid::UI::Camera::WIDGET_HEIGHT); // 16:9 aspect ratio
     }
 
 protected:
@@ -50,7 +50,7 @@ protected:
 
         // Check if the drone is underground or crashed
         double groundHeight = terrain.getHeightAt(drone->x, drone->y);
-        bool isUnderground = (drone->z < groundHeight - 0.5);
+        bool isUnderground = (drone->z < groundHeight - AeroGrid::Physics::UNDERGROUND_THRESHOLD);
         bool isCrashed = (drone->status == DroneStatus::Crashed);
 
         // Render everything onto a QImage to allow pixel-level depth buffering
@@ -62,14 +62,15 @@ protected:
             if (py < h / 2) {
                 // Sky gradient: transition from blue at top to sky blue at horizon
                 double t = py / (h / 2.0);
+                using namespace AeroGrid::UI;
                 color = QColor(
-                    qBound(0, qRound(60 + t * 40), 255),
-                    qBound(0, qRound(100 + t * 49), 255),
-                    qBound(0, qRound(200 + t * 37), 255)
+                    qBound(0, qRound(COLOR_SKY_TOP.red() + t * (COLOR_SKY_BOTTOM.red() - COLOR_SKY_TOP.red())), 255),
+                    qBound(0, qRound(COLOR_SKY_TOP.green() + t * (COLOR_SKY_BOTTOM.green() - COLOR_SKY_TOP.green())), 255),
+                    qBound(0, qRound(COLOR_SKY_TOP.blue() + t * (COLOR_SKY_BOTTOM.blue() - COLOR_SKY_TOP.blue())), 255)
                 );
             } else {
                 // Ground backdrop: default dark blue water
-                color = QColor(20, 60, 200);
+                color = AeroGrid::UI::COLOR_WATER;
             }
             for (int px = 0; px < w; ++px) {
                 image.setPixelColor(px, py, color);
@@ -83,9 +84,10 @@ protected:
         QVector2D forward(qCos(yawRad), qSin(yawRad));
         QVector2D right(-forward.y(), forward.x());
 
-        const int numCols = 32;
-        const int numRows = 12;
-        const double step = 3.0;
+        using namespace AeroGrid::UI::Camera;
+        const int numCols = NUM_COLS;
+        const double step = TERRAIN_STEP;
+        const int numRows = qRound(MAX_DRAW_DISTANCE / step);
 
         // 1. Render Terrain (from back to front)
         for (int z = numRows; z > 0; --z) {
@@ -108,7 +110,7 @@ protected:
                 int yStart = qMax(0, qRound(screenY));
                 int yEnd = h - 1;
 
-                QColor color = (terrainH < 1.0) ? QColor(20, 60, 200) : QColor(34, 139, 34);
+                QColor color = (terrainH < AeroGrid::World::LAND_THRESHOLD) ? AeroGrid::UI::COLOR_WATER : AeroGrid::UI::COLOR_LAND;
                 QColor darkenedColor = color.darker(100 + (z * 5));
 
                 for (int px = xStart; px <= xEnd; ++px) {
@@ -126,7 +128,7 @@ protected:
         const auto& staticObstacles = terrain.getObstacles();
         for (const auto& obs : staticObstacles) {
             double obsH = terrain.getHeightAt(obs.x, obs.y);
-            double zBottom = obsH - 0.5; // Slightly lower than ground to prevent gaps
+            double zBottom = obsH - RENDERING_GAP_OFFSET; // Slightly lower than ground to prevent gaps
             double zTop = obsH + obs.height;
 
             if (obs.shape == ObstacleShape::Cylinder) {
@@ -135,13 +137,13 @@ protected:
                 if (!projectPoint(obs.x, obs.y, zBottom, drone, forward, right, projX, projY_bottom, dist, w, h)) {
                     continue;
                 }
-                if (dist > 150.0) continue; // Out of view distance
+                if (dist > MAX_DRAW_DISTANCE) continue; // Out of view distance
 
                 double projY_top;
                 double dummyDist;
                 projectPoint(obs.x, obs.y, zTop, drone, forward, right, projX, projY_top, dummyDist, w, h);
 
-                double K_x = 5.0 * (w / 32.0);
+                double K_x = PROJECTION_K_X * (w / static_cast<double>(NUM_COLS));
                 double halfWidth = (obs.radius / dist) * K_x;
                 if (halfWidth < 0.5) halfWidth = 0.5;
 
@@ -161,9 +163,9 @@ protected:
                     t = qBound(0.0, t, 1.0);
 
                     // Base crimson red color, shaded by distance
-                    int red = qBound(50, 200 - qRound(dist * 0.8), 255);
-                    int green = qBound(10, 30 - qRound(dist * 0.1), 255);
-                    int blue = qBound(10, 30 - qRound(dist * 0.1), 255);
+                    int red = qBound(50, AeroGrid::UI::COLOR_STATIC_OBSTACLE.red() - qRound(dist * 0.8), 255);
+                    int green = qBound(10, AeroGrid::UI::COLOR_STATIC_OBSTACLE.green() - qRound(dist * 0.1), 255);
+                    int blue = qBound(10, AeroGrid::UI::COLOR_STATIC_OBSTACLE.blue() - qRound(dist * 0.1), 255);
 
                     double shade = 1.0 - 0.4 * t;
                     red = qBound(0, qRound(red * shade), 255);
@@ -178,7 +180,7 @@ protected:
 
                             bool isOutline = (px == xStart || px == xEnd || py == yStart || py == yEnd);
                             if (isOutline) {
-                                image.setPixelColor(px, py, QColor(40, 5, 5));
+                                image.setPixelColor(px, py, AeroGrid::UI::COLOR_OBSTACLE_OUTLINE);
                             } else {
                                 image.setPixelColor(px, py, QColor(red, green, blue));
                             }
@@ -203,7 +205,7 @@ protected:
                         continue;
                     }
 
-                    if (dist_a <= 0.1 || dist_b <= 0.1 || dist_a > 150.0 || dist_b > 150.0) continue;
+                    if (dist_a <= 0.1 || dist_b <= 0.1 || dist_a > MAX_DRAW_DISTANCE || dist_b > MAX_DRAW_DISTANCE) continue;
 
                     double projXa_top, projY_top_a;
                     double projXb_top, projY_top_b;
@@ -254,9 +256,9 @@ protected:
                     double cosTheta = qMax(0.2, 0.5 + 0.5 * dot);
 
                     // Crimson base color
-                    double baseRed = 200.0 * cosTheta;
-                    double baseGreen = 30.0 * cosTheta;
-                    double baseBlue = 30.0 * cosTheta;
+                    double baseRed = AeroGrid::UI::COLOR_STATIC_OBSTACLE.red() * cosTheta;
+                    double baseGreen = AeroGrid::UI::COLOR_STATIC_OBSTACLE.green() * cosTheta;
+                    double baseBlue = AeroGrid::UI::COLOR_STATIC_OBSTACLE.blue() * cosTheta;
 
                     int xStartClamped = qMax(0, xStart);
                     int xEndClamped = qMin(w - 1, xEnd);
@@ -283,7 +285,7 @@ protected:
 
                                 bool isOutline = (px == xStart || px == xEnd || py == qRound(yTop) || py == qRound(yBottom));
                                 if (isOutline) {
-                                    image.setPixelColor(px, py, QColor(40, 5, 5));
+                                    image.setPixelColor(px, py, AeroGrid::UI::COLOR_OBSTACLE_OUTLINE);
                                 } else {
                                     image.setPixelColor(px, py, QColor(red, green, blue));
                                 }
@@ -301,9 +303,9 @@ protected:
             if (!projectPoint(obs.x, obs.y, obs.z, drone, forward, right, projX, projY, dist, w, h)) {
                 continue;
             }
-            if (dist > 150.0) continue;
+            if (dist > MAX_DRAW_DISTANCE) continue;
 
-            double K_x = 5.0 * (w / 32.0);
+            double K_x = PROJECTION_K_X * (w / static_cast<double>(NUM_COLS));
             double radiusPx = (obs.radius / dist) * K_x;
             if (radiusPx < 0.5) radiusPx = 0.5;
 
@@ -328,9 +330,9 @@ protected:
                             t = qBound(0.0, t, 1.0);
 
                             // Base orange color, shaded by distance
-                            int red = qBound(50, 240 - qRound(dist * 0.8), 255);
-                            int green = qBound(20, 120 - qRound(dist * 0.4), 255);
-                            int blue = 0;
+                            int red = qBound(50, AeroGrid::UI::COLOR_DYNAMIC_OBSTACLE.red() - qRound(dist * 0.8), 255);
+                            int green = qBound(20, AeroGrid::UI::COLOR_DYNAMIC_OBSTACLE.green() - qRound(dist * 0.4), 255);
+                            int blue = AeroGrid::UI::COLOR_DYNAMIC_OBSTACLE.blue();
 
                             double shade = 1.0 - 0.4 * t;
                             red = qBound(0, qRound(red * shade), 255);
@@ -339,7 +341,7 @@ protected:
 
                             bool isOutline = (distSq > (radiusPx - 1.0) * (radiusPx - 1.0));
                             if (isOutline) {
-                                image.setPixelColor(px, py, QColor(40, 20, 0));
+                                image.setPixelColor(px, py, AeroGrid::UI::COLOR_DYNAMIC_OBSTACLE_OUTLINE);
                             } else {
                                 image.setPixelColor(px, py, QColor(red, green, blue));
                             }
@@ -365,7 +367,7 @@ protected:
             }
         } else if (isUnderground) {
             // Dark brown dirt texture with static noise
-            image.fill(QColor(54, 38, 27));
+            image.fill(AeroGrid::UI::COLOR_UNDERGROUND_DIRT);
             for (int i = 0; i < 500; ++i) {
                 int px = QRandomGenerator::global()->bounded(w);
                 int py = QRandomGenerator::global()->bounded(h);
@@ -435,10 +437,11 @@ private:
 
         double xOff = dx * right.x() + dy * right.y();
 
-        double K_x = 5.0 * (w / 32.0);
+        using namespace AeroGrid::UI::Camera;
+        double K_x = PROJECTION_K_X * (w / static_cast<double>(NUM_COLS));
         outX = w / 2.0 + (xOff / outDist) * K_x;
 
-        double K_y = (4.0 / (outDist + 1.0)) * (h / 12.0);
+        double K_y = (PROJECTION_K_Y / (outDist + 1.0)) * (h / REFERENCE_ROWS);
         outY = h / 2.0 + (drone->z - wz) * K_y;
         return true;
     }

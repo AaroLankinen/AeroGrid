@@ -166,7 +166,7 @@ void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacl
                 vertices.push_back({prim.x, prim.y});
 
                 for (const auto& pt : vertices) {
-                    if (getHeightAt(pt.first, pt.second) < 1.0) {
+                    if (getHeightAt(pt.first, pt.second) < AeroGrid::World::LAND_THRESHOLD) {
                         valid = false;
                         break;
                     }
@@ -182,7 +182,7 @@ void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacl
                     double dy = prim.y - existing.y;
                     double dist = qSqrt(dx * dx + dy * dy);
                     // Prevent overlaps with existing separate buildings
-                    if (dist < (prim.radius + existing.radius + 4.0)) {
+                    if (dist < (prim.radius + existing.radius + AeroGrid::World::OBSTACLE_SEPARATION_MARGIN)) {
                         valid = false;
                         break;
                     }
@@ -190,7 +190,7 @@ void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacl
                 if (!valid) break;
             }
 
-        } while (!valid && ++attempts < 50);
+        } while (!valid && ++attempts < AeroGrid::World::OBSTACLE_SPAWN_ATTEMPTS);
 
         if (valid) {
             for (auto& prim : group) {
@@ -255,7 +255,7 @@ double TerrainMap::getHeightAt(double x, double y) const {
     // Normalize the noise so that 1.0 is the shoreline.
     // Anything > 1.0 is land, anything < 1.0 is water.
     double h = calculateRawNoise(x, y);
-    return qMax(0.0, h - m_waterThreshold + 1.0);
+    return qMax(0.0, h - m_waterThreshold + AeroGrid::World::LAND_THRESHOLD);
 }
 
 int TerrainMap::getWidth() const { return m_width; }
