@@ -15,6 +15,7 @@
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QPainter>
+#include <QImage>
 #include <QVector2D>
 #include <QtMath> // For qCos, qSin, qSqrt
 #include <QColor>
@@ -44,9 +45,39 @@ protected:
 
         const TerrainMap& terrain = m_engine->getTerrain();
 
-        // Render simplified horizon/ground projection
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(0, 0, width(), height() / 2, QColor(100, 149, 237)); // Sky
+        int w = width();
+        int h = height();
+
+        // Check if the drone is underground or crashed
+        double groundHeight = terrain.getHeightAt(drone->x, drone->y);
+        bool isUnderground = (drone->z < groundHeight - 0.5);
+        bool isCrashed = (drone->status == DroneStatus::Crashed);
+
+        // Render everything onto a QImage to allow pixel-level depth buffering
+        QImage image(w, h, QImage::Format_ARGB32);
+        
+        // Render sky gradient in the top half, default water/ground in the bottom half
+        for (int py = 0; py < h; ++py) {
+            QColor color;
+            if (py < h / 2) {
+                // Sky gradient: transition from blue at top to sky blue at horizon
+                double t = py / (h / 2.0);
+                color = QColor(
+                    qBound(0, qRound(60 + t * 40), 255),
+                    qBound(0, qRound(100 + t * 49), 255),
+                    qBound(0, qRound(200 + t * 37), 255)
+                );
+            } else {
+                // Ground backdrop: default dark blue water
+                color = QColor(20, 60, 200);
+            }
+            for (int px = 0; px < w; ++px) {
+                image.setPixelColor(px, py, color);
+            }
+        }
+
+        // Initialize Z-buffer (depth buffer) with infinity
+        std::vector<std::vector<double>> zBuffer(w, std::vector<double>(h, 1e9));
 
         double yawRad = drone->yaw * (M_PI / 180.0);
         QVector2D forward(qCos(yawRad), qSin(yawRad));
@@ -55,33 +86,240 @@ protected:
         const int numCols = 32;
         const int numRows = 12;
         const double step = 3.0;
-        
+
+        // 1. Render Terrain (from back to front)
         for (int z = numRows; z > 0; --z) {
             double dist = z * step;
-            for (int x = -numCols / 2; x < numCols / 2; ++x) { // Corrected loop condition
+            for (int x = -numCols / 2; x < numCols / 2; ++x) {
                 double xOff = x * step * (dist / 15.0);
                 double worldX = drone->x + forward.x() * dist + right.x() * xOff;
                 double worldY = drone->y + forward.y() * dist + right.y() * xOff;
-                double h = terrain.getHeightAt(worldX, worldY);
-                
-                double screenX = (x + numCols / 2) * (width() / (double)numCols); // Corrected division to double
-                double screenY = height() / 2.0 + (drone->z - h) * (4.0 / (dist + 1.0)) * (height() / 12.0); // Corrected division to double
-                
-                QColor color = (h < 1.0) ? QColor(20, 60, 200) : QColor(34, 139, 34);
-                painter.setBrush(color.darker(100 + (z * 5)));
-                painter.setPen(Qt::NoPen);
-                painter.drawRect(QRectF(screenX, screenY, (width() / (double)numCols) + 1, height() / 4.0));
+                double terrainH = terrain.getHeightAt(worldX, worldY);
+
+                double screenX, screenY, dummyDist;
+                // Use helper to project point on terrain
+                if (!projectPoint(worldX, worldY, terrainH, drone, forward, right, screenX, screenY, dummyDist, w, h)) {
+                    continue;
+                }
+
+                double colWidth = (double)w / numCols;
+                int xStart = qMax(0, qRound((x + numCols / 2.0) * colWidth));
+                int xEnd = qMin(w - 1, qRound((x + numCols / 2.0 + 1.0) * colWidth));
+                int yStart = qMax(0, qRound(screenY));
+                int yEnd = h - 1;
+
+                QColor color = (terrainH < 1.0) ? QColor(20, 60, 200) : QColor(34, 139, 34);
+                QColor darkenedColor = color.darker(100 + (z * 5));
+
+                for (int px = xStart; px <= xEnd; ++px) {
+                    for (int py = yStart; py <= yEnd; ++py) {
+                        if (dist <= zBuffer[px][py]) {
+                            zBuffer[px][py] = dist;
+                            image.setPixelColor(px, py, darkenedColor);
+                        }
+                    }
+                }
             }
         }
 
+        // 2. Render Static Obstacles
+        const auto& staticObstacles = terrain.getObstacles();
+        for (const auto& obs : staticObstacles) {
+            double obsH = terrain.getHeightAt(obs.x, obs.y);
+            double zBottom = obsH - 0.5; // Slightly lower than ground to prevent gaps
+            double zTop = obsH + obs.height;
+
+            double projX, projY_bottom, dist;
+            if (!projectPoint(obs.x, obs.y, zBottom, drone, forward, right, projX, projY_bottom, dist, w, h)) {
+                continue;
+            }
+            if (dist > 150.0) continue; // Out of view distance
+
+            double projY_top;
+            double dummyDist;
+            projectPoint(obs.x, obs.y, zTop, drone, forward, right, projX, projY_top, dummyDist, w, h);
+
+            double K_x = 5.0 * (w / 32.0);
+            double halfWidth = (obs.radius / dist) * K_x;
+            if (halfWidth < 0.5) halfWidth = 0.5;
+
+            int xStart = qRound(projX - halfWidth);
+            int xEnd = qRound(projX + halfWidth);
+            int yStart = qRound(projY_top);
+            int yEnd = qRound(projY_bottom);
+
+            for (int px = xStart; px <= xEnd; ++px) {
+                if (px < 0 || px >= w) continue;
+
+                // Cylinder horizontal shading (darker at edges)
+                double t = 0.0;
+                if (halfWidth > 0.1) {
+                    t = qAbs(px - projX) / halfWidth;
+                }
+                t = qBound(0.0, t, 1.0);
+
+                // Base crimson red color, shaded by distance
+                int red = qBound(50, 200 - qRound(dist * 0.8), 255);
+                int green = qBound(10, 30 - qRound(dist * 0.1), 255);
+                int blue = qBound(10, 30 - qRound(dist * 0.1), 255);
+
+                double shade = 1.0 - 0.4 * t;
+                red = qBound(0, qRound(red * shade), 255);
+                green = qBound(0, qRound(green * shade), 255);
+                blue = qBound(0, qRound(blue * shade), 255);
+
+                for (int py = yStart; py <= yEnd; ++py) {
+                    if (py < 0 || py >= h) continue;
+
+                    if (dist <= zBuffer[px][py]) {
+                        zBuffer[px][py] = dist;
+
+                        bool isOutline = (px == xStart || px == xEnd || py == yStart || py == yEnd);
+                        if (isOutline) {
+                            image.setPixelColor(px, py, QColor(40, 5, 5));
+                        } else {
+                            image.setPixelColor(px, py, QColor(red, green, blue));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Render Dynamic Obstacles
+        auto dynamicObstacles = m_engine->getDynamicObstacleData();
+        for (const auto& obs : dynamicObstacles) {
+            double projX, projY, dist;
+            if (!projectPoint(obs.x, obs.y, obs.z, drone, forward, right, projX, projY, dist, w, h)) {
+                continue;
+            }
+            if (dist > 150.0) continue;
+
+            double K_x = 5.0 * (w / 32.0);
+            double radiusPx = (obs.radius / dist) * K_x;
+            if (radiusPx < 0.5) radiusPx = 0.5;
+
+            int xStart = qRound(projX - radiusPx);
+            int xEnd = qRound(projX + radiusPx);
+            int yStart = qRound(projY - radiusPx);
+            int yEnd = qRound(projY + radiusPx);
+
+            for (int px = xStart; px <= xEnd; ++px) {
+                if (px < 0 || px >= w) continue;
+                for (int py = yStart; py <= yEnd; ++py) {
+                    if (py < 0 || py >= h) continue;
+
+                    double dx = px - projX;
+                    double dy = py - projY;
+                    double distSq = dx*dx + dy*dy;
+                    if (distSq <= radiusPx * radiusPx) {
+                        if (dist <= zBuffer[px][py]) {
+                            zBuffer[px][py] = dist;
+
+                            double t = qSqrt(distSq) / radiusPx;
+                            t = qBound(0.0, t, 1.0);
+
+                            // Base orange color, shaded by distance
+                            int red = qBound(50, 240 - qRound(dist * 0.8), 255);
+                            int green = qBound(20, 120 - qRound(dist * 0.4), 255);
+                            int blue = 0;
+
+                            double shade = 1.0 - 0.4 * t;
+                            red = qBound(0, qRound(red * shade), 255);
+                            green = qBound(0, qRound(green * shade), 255);
+                            blue = qBound(0, qRound(blue * shade), 255);
+
+                            bool isOutline = (distSq > (radiusPx - 1.0) * (radiusPx - 1.0));
+                            if (isOutline) {
+                                image.setPixelColor(px, py, QColor(40, 20, 0));
+                            } else {
+                                image.setPixelColor(px, py, QColor(red, green, blue));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply crash/underground screen overrides
+        if (isCrashed) {
+            // Analog static noise effect
+            for (int py = 0; py < h; ++py) {
+                for (int px = 0; px < w; ++px) {
+                    int val = QRandomGenerator::global()->bounded(256);
+                    image.setPixelColor(px, py, qRgb(val, val, val));
+                }
+            }
+        } else if (isUnderground) {
+            // Dark brown dirt texture with static noise
+            image.fill(QColor(54, 38, 27));
+            for (int i = 0; i < 500; ++i) {
+                int px = QRandomGenerator::global()->bounded(w);
+                int py = QRandomGenerator::global()->bounded(h);
+                int noise = QRandomGenerator::global()->bounded(30) - 15;
+                QColor c = image.pixelColor(px, py);
+                image.setPixelColor(px, py, QColor(
+                    qBound(0, c.red() + noise, 255),
+                    qBound(0, c.green() + noise, 255),
+                    qBound(0, c.blue() + noise, 255)
+                ));
+            }
+        }
+
+        // Draw the main image on the widget
+        painter.drawImage(0, 0, image);
+
+        // Draw HUD overlay elements
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        if (isCrashed) {
+            painter.setPen(Qt::red);
+            QFont f = painter.font();
+            f.setBold(true);
+            f.setPointSize(10);
+            painter.setFont(f);
+            painter.drawText(rect(), Qt::AlignCenter, "⚠️ CONNECTION LOST\n(CRASHED)");
+        } else if (isUnderground) {
+            painter.setPen(QColor(230, 126, 34)); // Warning orange
+            QFont f = painter.font();
+            f.setBold(true);
+            f.setPointSize(10);
+            painter.setFont(f);
+            painter.drawText(rect(), Qt::AlignCenter, "⚠️ CAMERA OBSTRUCTED\n(UNDERGROUND)");
+        } else {
+            // Draw crosshairs
+            painter.setPen(QColor(255, 255, 255, 100));
+            painter.drawLine(w/2 - 10, h/2, w/2 + 10, h/2);
+            painter.drawLine(w/2, h/2 - 10, w/2, h/2 + 10);
+        }
+
+        // Draw overlay text: ID and altitude
         painter.setPen(Qt::white);
+        QFont f = painter.font();
+        f.setBold(false);
+        f.setPointSize(8);
+        painter.setFont(f);
         painter.drawText(5, 15, QString("D%1 | ALT: %2m").arg(m_droneId).arg(drone->z, 0, 'f', 1));
-        painter.setPen(QColor(255, 255, 255, 100));
-        painter.drawLine(width()/2 - 10, height()/2, width()/2 + 10, height()/2);
-        painter.drawLine(width()/2, height()/2 - 10, width()/2, height()/2 + 10);
     }
 
 private:
+    bool projectPoint(double wx, double wy, double wz, const Drone* drone,
+                      const QVector2D& forward, const QVector2D& right,
+                      double& outX, double& outY, double& outDist, int w, int h) {
+        double dx = wx - drone->x;
+        double dy = wy - drone->y;
+        outDist = dx * forward.x() + dy * forward.y();
+        if (outDist <= 0.1) return false;
+
+        double xOff = dx * right.x() + dy * right.y();
+
+        double K_x = 5.0 * (w / 32.0);
+        outX = w / 2.0 + (xOff / outDist) * K_x;
+
+        double K_y = (4.0 / (outDist + 1.0)) * (h / 12.0);
+        outY = h / 2.0 + (drone->z - wz) * K_y;
+        return true;
+    }
+
     int m_droneId;
     SimulationEngine* m_engine;
 };
