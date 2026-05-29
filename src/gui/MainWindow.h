@@ -11,6 +11,7 @@
 #include "TelemetryModel.h"
 
 class TerrainView;
+class QScrollArea;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -27,6 +28,7 @@ private:
     QTableView* m_tableView;
     QTableView* m_hangarTableView;
     QWidget* m_simUIContainer;
+    QScrollArea* m_cameraScroll;
     QWidget* m_cameraScrollContent;
     QHBoxLayout* m_cameraLayout;
     TerrainView* m_terrainView;

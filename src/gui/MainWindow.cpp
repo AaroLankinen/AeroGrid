@@ -91,16 +91,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* mainLayout = new QVBoxLayout(centralWidget);
 
     // --- 0. Remote Camera Views (Top) ---
-    auto* cameraScroll = new QScrollArea(this);
-    cameraScroll->setWidgetResizable(true);
-    cameraScroll->setFixedHeight(160);
+    m_cameraScroll = new QScrollArea(this);
+    m_cameraScroll->setWidgetResizable(true);
+    m_cameraScroll->setFixedHeight(160);
+    m_cameraScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_cameraScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_cameraScrollContent = new QWidget(this);
     m_cameraLayout = new QHBoxLayout(m_cameraScrollContent);
     m_cameraLayout->setContentsMargins(5, 5, 5, 5);
     m_cameraLayout->setAlignment(Qt::AlignLeft);
-    cameraScroll->setWidget(m_cameraScrollContent);
-    cameraScroll->hide();
-    mainLayout->addWidget(cameraScroll);
+    m_cameraScroll->setWidget(m_cameraScrollContent);
+    mainLayout->addWidget(m_cameraScroll);
 
     // --- 1. Map Generation Control Group (Top) ---
     auto* configGroup = new QGroupBox("Map Generation Settings", this);
@@ -379,6 +380,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     });
 
     updateButtonStates();
+    updateCameraViews();
     setCentralWidget(centralWidget);
 }
 
@@ -389,13 +391,19 @@ void MainWindow::updateCameraViews() {
         delete child;
     }
 
-    for (int id : m_selectedIds) {
-        auto* cam = new DroneCameraWidget(id, &m_engine, this);
-        m_cameraLayout->addWidget(cam);
+    if (m_selectedIds.empty()) {
+        m_cameraLayout->setAlignment(Qt::AlignCenter);
+        auto* placeholder = new QLabel("Select one or more deployed drones to view live camera feeds", m_cameraScrollContent);
+        placeholder->setAlignment(Qt::AlignCenter);
+        placeholder->setStyleSheet("color: #7f8c8d; font-size: 13px; font-weight: bold;");
+        m_cameraLayout->addWidget(placeholder);
+    } else {
+        m_cameraLayout->setAlignment(Qt::AlignLeft);
+        for (int id : m_selectedIds) {
+            auto* cam = new DroneCameraWidget(id, &m_engine, this);
+            m_cameraLayout->addWidget(cam);
+        }
     }
-    
-    // Show scroll area only if cameras exist
-    m_cameraScrollContent->parentWidget()->parentWidget()->setVisible(!m_selectedIds.empty());
 }
 
 void MainWindow::updateButtonStates() {
