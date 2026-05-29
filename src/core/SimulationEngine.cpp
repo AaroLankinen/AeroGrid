@@ -159,7 +159,13 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
         return;
     }
 
-    if (drone.status == DroneStatus::Crashed) return;
+    if (drone.status == DroneStatus::Crashed) {
+        if (drone.batteryLevel > 0.0) {
+            drone.batteryLevel -= AeroGrid::Physics::HOVER_CONSUMPTION;
+            if (drone.batteryLevel < 0.0) drone.batteryLevel = 0.0;
+        }
+        return;
+    }
 
     calculateDroneMovement(drone, groundHeight, dt);
     applyObstacleAvoidance(drone, groundHeight);
@@ -272,10 +278,17 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
             }
 
             if (dist2D < minDist && drone.z < absoluteObsHeight) {
-                drone.status = DroneStatus::Crashed;
-                drone.vx = drone.vy = drone.vz = 0;
-                drone.x = obs.x + (dx / dist2D) * minDist;
-                drone.y = obs.y + (dy / dist2D) * minDist;
+                double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+                if (speed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
+                    drone.status = DroneStatus::Crashed;
+                    drone.vx = drone.vy = drone.vz = 0;
+                }
+                if (dist2D > 0.001) {
+                    drone.x = obs.x + (dx / dist2D) * minDist;
+                    drone.y = obs.y + (dy / dist2D) * minDist;
+                } else {
+                    drone.x += minDist;
+                }
             }
         }
     }
@@ -299,21 +312,49 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         }
 
         if (dist < minDist) {
-            drone.status = DroneStatus::Crashed;
-            drone.vx = drone.vy = drone.vz = 0;
+            double rvx = drone.vx - obs.vx;
+            double rvy = drone.vy - obs.vy;
+            double rvz = drone.vz - obs.vz;
+            double relativeSpeed = qSqrt(rvx*rvx + rvy*rvy + rvz*rvz);
+            if (relativeSpeed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
+                drone.status = DroneStatus::Crashed;
+                drone.vx = drone.vy = drone.vz = 0;
+            } else {
+                if (dist > 0.001) {
+                    double nx = dx / dist; double ny = dy / dist; double nz = dz / dist;
+                    drone.x = obs.x + nx * minDist;
+                    drone.y = obs.y + ny * minDist;
+                    drone.z = obs.z + nz * minDist;
+                } else {
+                    drone.x += minDist;
+                }
+            }
         }
     }
 }
 
 void SimulationEngine::checkGroundContact(Drone& drone, double groundHeight) {
-    if (drone.z <= groundHeight + 0.05 && drone.vz < 0) {
-        if (qAbs(drone.vz) < AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
-            drone.status = DroneStatus::Landed;
-        } else {
+    if (drone.z <= groundHeight + 0.05) {
+        double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+        if (groundHeight < AeroGrid::World::LAND_THRESHOLD) {
+            // Water collision: always crash
             drone.status = DroneStatus::Crashed;
+            drone.z = groundHeight;
+            drone.vx = drone.vy = drone.vz = 0;
+        } else {
+            // Ground contact:
+            if (speed < AeroGrid::Physics::MAX_SAFE_LANDING_SPEED && drone.vz <= 0.05) {
+                // Controlled safe landing on dry ground
+                drone.status = DroneStatus::Landed;
+                drone.z = groundHeight;
+                drone.vx = drone.vy = drone.vz = 0;
+            } else {
+                // High-speed contact: crash
+                drone.status = DroneStatus::Crashed;
+                drone.z = groundHeight;
+                drone.vx = drone.vy = drone.vz = 0;
+            }
         }
-        drone.z = groundHeight;
-        drone.vx = drone.vy = drone.vz = 0;
     }
 }
 
@@ -357,9 +398,28 @@ void SimulationEngine::handleDroneToDroneCollisions() {
             }
 
             if (dist < minDist) {
-                d1.status = d2.status = DroneStatus::Crashed;
-                d1.vx = d1.vy = d1.vz = 0;
-                d2.vx = d2.vy = d2.vz = 0;
+                double rvx = d1.vx - d2.vx;
+                double rvy = d1.vy - d2.vy;
+                double rvz = d1.vz - d2.vz;
+                double relativeSpeed = qSqrt(rvx*rvx + rvy*rvy + rvz*rvz);
+                if (relativeSpeed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
+                    d1.status = d2.status = DroneStatus::Crashed;
+                    d1.vx = d1.vy = d1.vz = 0;
+                    d2.vx = d2.vy = d2.vz = 0;
+                } else {
+                    double nx = dx / dist; double ny = dy / dist; double nz = dz / dist;
+                    double overlap = minDist - dist;
+                    if (d1.status != DroneStatus::Landed) {
+                        d1.x += nx * overlap * 0.5;
+                        d1.y += ny * overlap * 0.5;
+                        d1.z += nz * overlap * 0.5;
+                    }
+                    if (d2.status != DroneStatus::Landed) {
+                        d2.x -= nx * overlap * 0.5;
+                        d2.y -= ny * overlap * 0.5;
+                        d2.z -= nz * overlap * 0.5;
+                    }
+                }
             }
         }
     }

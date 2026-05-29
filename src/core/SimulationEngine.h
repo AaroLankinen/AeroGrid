@@ -46,6 +46,7 @@
  */
 class SimulationEngine : public QObject {
     Q_OBJECT
+    friend class TestAeroGrid;
 public:
     /**
      * @brief Constructs a SimulationEngine instance.

@@ -242,12 +242,17 @@ protected:
 
         // Apply crash/underground screen overrides
         if (isCrashed) {
-            // Analog static noise effect
-            for (int py = 0; py < h; ++py) {
-                for (int px = 0; px < w; ++px) {
-                    int val = QRandomGenerator::global()->bounded(256);
-                    image.setPixelColor(px, py, qRgb(val, val, val));
+            if (drone->batteryLevel > 0.0) {
+                // Analog static noise effect
+                for (int py = 0; py < h; ++py) {
+                    for (int px = 0; px < w; ++px) {
+                        int val = QRandomGenerator::global()->bounded(256);
+                        image.setPixelColor(px, py, qRgb(val, val, val));
+                    }
                 }
+            } else {
+                // Depleted battery: completely black screen
+                image.fill(Qt::black);
             }
         } else if (isUnderground) {
             // Dark brown dirt texture with static noise
@@ -272,12 +277,21 @@ protected:
         painter.setRenderHint(QPainter::Antialiasing);
 
         if (isCrashed) {
-            painter.setPen(Qt::red);
-            QFont f = painter.font();
-            f.setBold(true);
-            f.setPointSize(10);
-            painter.setFont(f);
-            painter.drawText(rect(), Qt::AlignCenter, "⚠️ CONNECTION LOST\n(CRASHED)");
+            if (drone->batteryLevel > 0.0) {
+                painter.setPen(Qt::red);
+                QFont f = painter.font();
+                f.setBold(true);
+                f.setPointSize(10);
+                painter.setFont(f);
+                painter.drawText(rect(), Qt::AlignCenter, "⚠️ CONNECTION LOST\n(CRASHED)");
+            } else {
+                painter.setPen(QColor(100, 100, 100)); // Dim gray text
+                QFont f = painter.font();
+                f.setBold(true);
+                f.setPointSize(10);
+                painter.setFont(f);
+                painter.drawText(rect(), Qt::AlignCenter, "NO SIGNAL\n(BATTERY DEPLETED)");
+            }
         } else if (isUnderground) {
             painter.setPen(QColor(230, 126, 34)); // Warning orange
             QFont f = painter.font();
@@ -367,7 +381,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     // Ensure the dropdown closes and loses focus after a selection
     connect(m_mapPresetCombo, QOverload<int>::of(&QComboBox::activated), [this](int) {
-        m_mapPresetCombo->clearFocus();
+        QMetaObject::invokeMethod(m_mapPresetCombo, &QWidget::clearFocus, Qt::QueuedConnection);
     });
 
     m_mapWidthSpin = new QSpinBox(this);
@@ -508,7 +522,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_modeSelector->addItem("Terrain Skimming", static_cast<int>(NavigationMode::TerrainSkimming));
     // Ensure the dropdown closes and loses focus after a selection
     connect(m_modeSelector, QOverload<int>::of(&QComboBox::activated), [this](int) { 
-        m_modeSelector->clearFocus(); 
+        QMetaObject::invokeMethod(m_modeSelector, &QWidget::clearFocus, Qt::QueuedConnection); 
     });
 
     m_launchBtn = new QPushButton("Launch Drone (12 Available)", this);

@@ -811,6 +811,189 @@ private slots:
         
         engine.stopSimulation();
     }
+
+    /**
+     * @brief Tests that landing on water always results in a crash.
+     */
+    void testWaterCollisionAlwaysCrashes() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 0.5, 200, 200); // 50% land, 50% water
+        
+        const auto& terrain = engine.getTerrain();
+        double wx = 0.0, wy = 0.0;
+        bool foundWater = false;
+        for (int y = -100; y < 100; ++y) {
+            for (int x = -100; x < 100; ++x) {
+                if (terrain.getHeightAt(x, y) < 1.0) {
+                    wx = x; wy = y;
+                    foundWater = true;
+                    break;
+                }
+            }
+            if (foundWater) break;
+        }
+        
+        QVERIFY(foundWater);
+        
+        engine.launchDrone();
+        int droneId = engine.getDroneData().at(0).id;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(droneId);
+            drone.status = DroneStatus::Landing; // controlled landing state
+            drone.x = wx;
+            drone.y = wy;
+            drone.z = terrain.getHeightAt(wx, wy) + 0.02;
+            drone.vx = 0.0; drone.vy = 0.0; drone.vz = -1.5; // safe speed, but on water
+        }
+        
+        QTest::qWait(200);
+        
+        QCOMPARE(engine.getDroneData().at(0).status, DroneStatus::Crashed);
+        engine.stopSimulation();
+    }
+
+    /**
+     * @brief Tests that controlled landing on dry ground is safe.
+     */
+    void testGroundSafeLanding() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 0.5, 200, 200);
+        
+        const auto& terrain = engine.getTerrain();
+        double gx = 0.0, gy = 0.0;
+        bool foundGround = false;
+        for (int y = -100; y < 100; ++y) {
+            for (int x = -100; x < 100; ++x) {
+                if (terrain.getHeightAt(x, y) >= 1.0) {
+                    gx = x; gy = y;
+                    foundGround = true;
+                    break;
+                }
+            }
+            if (foundGround) break;
+        }
+        
+        QVERIFY(foundGround);
+        
+        engine.launchDrone();
+        int droneId = engine.getDroneData().at(0).id;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(droneId);
+            drone.status = DroneStatus::Landing; // controlled landing state
+            drone.x = gx;
+            drone.y = gy;
+            drone.z = terrain.getHeightAt(gx, gy) + 0.02;
+            drone.vx = 0.0; drone.vy = 0.0; drone.vz = -1.5; // safe vertical speed
+        }
+        
+        QTest::qWait(200);
+        
+        QCOMPARE(engine.getDroneData().at(0).status, DroneStatus::Landed);
+        engine.stopSimulation();
+    }
+
+    /**
+     * @brief Tests that high speed terrain contact results in a crash.
+     */
+    void testGroundHighSpeedCrash() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 0.5, 200, 200);
+        
+        const auto& terrain = engine.getTerrain();
+        double gx = 0.0, gy = 0.0;
+        bool foundGround = false;
+        for (int y = -100; y < 100; ++y) {
+            for (int x = -100; x < 100; ++x) {
+                if (terrain.getHeightAt(x, y) >= 1.0) {
+                    gx = x; gy = y;
+                    foundGround = true;
+                    break;
+                }
+            }
+            if (foundGround) break;
+        }
+        
+        QVERIFY(foundGround);
+        
+        engine.launchDrone();
+        int droneId = engine.getDroneData().at(0).id;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(droneId);
+            drone.status = DroneStatus::Flying;
+            drone.batteryLevel = 0.0; // bypass calculateDroneMovement to allow simulated high speed descent
+            drone.x = gx;
+            drone.y = gy;
+            drone.z = terrain.getHeightAt(gx, gy) + 0.02;
+            drone.vx = 0.0; drone.vy = 0.0; drone.vz = -3.0; // > MAX_SAFE_LANDING_SPEED (2.0)
+        }
+        
+        QTest::qWait(200);
+        
+        QCOMPARE(engine.getDroneData().at(0).status, DroneStatus::Crashed);
+        engine.stopSimulation();
+    }
+
+    /**
+     * @brief Tests low speed vs high speed obstacle collisions.
+     */
+    void testObstacleCollisionSpeed() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 1.0, 200, 200, 1, 0); // 1 building, 0 dynamic
+        
+        const auto& obstacles = engine.getTerrain().getObstacles();
+        QCOMPARE((int)obstacles.size(), 1);
+        const auto& obs = obstacles.at(0);
+        
+        // 1. Deploy drone 1 for low speed contact (should fly, get pushed, not crash)
+        engine.launchDrone();
+        int d1Id = engine.getDroneData().at(0).id;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(d1Id);
+            drone.status = DroneStatus::Flying;
+            drone.x = obs.x + obs.radius + drone.radius - 0.01;
+            drone.y = obs.y;
+            drone.z = engine.getTerrain().getHeightAt(obs.x, obs.y) + obs.height - 2.0;
+            // No waypoint: hover logic will keep its velocity at 0, resulting in low speed contact
+        }
+        
+        QTest::qWait(200);
+        
+        QCOMPARE(engine.getDroneData().at(0).status, DroneStatus::Flying);
+        
+        // 2. Deploy drone 2 for high speed contact (should crash)
+        engine.launchDrone();
+        int d2Id = engine.getDroneData().at(1).id;
+        
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(d2Id);
+            drone.status = DroneStatus::Flying;
+            // Place just 0.1m away from the boundary
+            drone.x = obs.x + obs.radius + drone.radius + 0.1;
+            drone.y = obs.y;
+            drone.z = engine.getTerrain().getHeightAt(obs.x, obs.y) + obs.height - 2.0;
+            // Subtract formation offset to ensure target is exactly at obstacle center
+            double offsetX = (d2Id % 3 - 1) * 4.0;
+            double offsetY = (d2Id / 3 - 1) * 4.0;
+            drone.navQueue.push_back({obs.x - offsetX, obs.y - offsetY, drone.z});
+        }
+        
+        QTest::qWait(200);
+        
+        auto drones = engine.getDroneData();
+        Drone d2 = (drones.at(0).id == d2Id) ? drones.at(0) : drones.at(1);
+        QCOMPARE(d2.status, DroneStatus::Crashed);
+        
+        engine.stopSimulation();
+    }
 };
 
 QTEST_MAIN(TestAeroGrid)
