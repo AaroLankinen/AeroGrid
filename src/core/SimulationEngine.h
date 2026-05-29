@@ -77,7 +77,7 @@ public:
      * @note Calling this method while a simulation is running will stop the
      *       current one first.
      */
-    void startSimulation(unsigned int seed, double landProp, int width = 200, int height = 200);
+    void startSimulation(unsigned int seed, double landProp, int width = 200, int height = 200, int numStaticObstacles = 10, int numDynamicObstacles = -1);
     
     /**
      * @brief Stops the physics simulation and cleans up the worker thread.

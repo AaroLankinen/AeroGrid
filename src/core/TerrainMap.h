@@ -73,7 +73,7 @@ public:
      * @param height Terrain grid height in cells (default 200).
      * @param cellSize Size of each grid cell in world units (default 1.0 meter).
      */
-    TerrainMap(unsigned int seed = 12345, double landProp = 0.5, int width = 200, int height = 200, double cellSize = 1.0);
+    TerrainMap(unsigned int seed = 12345, double landProp = 0.5, int width = 200, int height = 200, double cellSize = 1.0, int numStaticObstacles = 10);
 
     /**
      * @brief Samples the terrain height at a specific world coordinate.
@@ -158,7 +158,7 @@ private:
      * 
      * Keeps obstacles away from the central helipad zone and prevents overlaps.
      */
-    void generateStaticObstacles(unsigned int seed);
+    void generateStaticObstacles(unsigned int seed, int numStaticObstacles);
     
     /**
      * @brief Calculates the noise value threshold for the shoreline.

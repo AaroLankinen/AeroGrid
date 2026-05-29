@@ -19,11 +19,11 @@ SimulationEngine::~SimulationEngine() {
     stopSimulation();
 }
 
-void SimulationEngine::startSimulation(unsigned int seed, double landProp, int width, int height) {
+void SimulationEngine::startSimulation(unsigned int seed, double landProp, int width, int height, int numStaticObstacles, int numDynamicObstacles) {
     if (m_running) stopSimulation();
     
     // Re-initialize terrain with the provided seed and preset dimensions
-    m_terrain = TerrainMap(seed, landProp, width, height);
+    m_terrain = TerrainMap(seed, landProp, width, height, 1.0, numStaticObstacles);
     std::srand(seed); 
 
     m_drones.clear();
@@ -45,7 +45,7 @@ void SimulationEngine::startSimulation(unsigned int seed, double landProp, int w
 
     // 2. Randomize Dynamic Obstacles (Birds/Unauthorized Drones)
     m_dynamicObstacles.clear();
-    int obstacleCount = 3 + (std::rand() % 4);
+    int obstacleCount = (numDynamicObstacles < 0) ? (3 + (std::rand() % 4)) : numDynamicObstacles;
     for (int i = 0; i < obstacleCount; ++i) {
         double obsX = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldWidth) - halfWorldWidth;
         double obsY = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldHeight) - halfWorldHeight;

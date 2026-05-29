@@ -356,12 +356,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     seedLayout->addWidget(randSeedBtn);
     configLayout->addLayout(seedLayout);
 
-    // Map Presets UI
+    // Map Presets and Custom Dimensions UI
     auto* dimLayout = new QHBoxLayout();
     m_mapPresetCombo = new QComboBox(this);
     m_mapPresetCombo->addItem("Small (250x250)", 250);
     m_mapPresetCombo->addItem("Medium (500x500)", 500);
     m_mapPresetCombo->addItem("Large (1000x1000)", 1000);
+    m_mapPresetCombo->addItem("Custom", -1);
     m_mapPresetCombo->setCurrentIndex(1); // Default to Medium
 
     // Ensure the dropdown closes and loses focus after a selection
@@ -369,9 +370,59 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         m_mapPresetCombo->clearFocus();
     });
 
-    dimLayout->addWidget(new QLabel("Map Size:", this));
+    m_mapWidthSpin = new QSpinBox(this);
+    m_mapWidthSpin->setRange(50, 2000);
+    m_mapWidthSpin->setValue(500);
+
+    m_mapHeightSpin = new QSpinBox(this);
+    m_mapHeightSpin->setRange(50, 2000);
+    m_mapHeightSpin->setValue(500);
+
+    dimLayout->addWidget(new QLabel("Preset:", this));
     dimLayout->addWidget(m_mapPresetCombo);
+    dimLayout->addWidget(new QLabel("Width:", this));
+    dimLayout->addWidget(m_mapWidthSpin);
+    dimLayout->addWidget(new QLabel("Height:", this));
+    dimLayout->addWidget(m_mapHeightSpin);
     configLayout->addLayout(dimLayout);
+
+    // Obstacle Counts UI
+    auto* obsLayout = new QHBoxLayout();
+    m_staticObsSpin = new QSpinBox(this);
+    m_staticObsSpin->setRange(0, 200);
+    m_staticObsSpin->setValue(10);
+
+    m_dynamicObsSpin = new QSpinBox(this);
+    m_dynamicObsSpin->setRange(0, 100);
+    m_dynamicObsSpin->setValue(5);
+
+    obsLayout->addWidget(new QLabel("Static Obstacles:", this));
+    obsLayout->addWidget(m_staticObsSpin);
+    obsLayout->addWidget(new QLabel("Dynamic Obstacles:", this));
+    obsLayout->addWidget(m_dynamicObsSpin);
+    configLayout->addLayout(obsLayout);
+
+    // Sync presets with width/height spinboxes
+    connect(m_mapPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        int size = m_mapPresetCombo->itemData(index).toInt();
+        if (size > 0) {
+            QSignalBlocker blockerW(m_mapWidthSpin);
+            QSignalBlocker blockerH(m_mapHeightSpin);
+            m_mapWidthSpin->setValue(size);
+            m_mapHeightSpin->setValue(size);
+        }
+    });
+
+    auto setToCustom = [this]() {
+        int customIdx = m_mapPresetCombo->findData(-1);
+        if (customIdx != -1 && m_mapPresetCombo->currentIndex() != customIdx) {
+            QSignalBlocker blocker(m_mapPresetCombo);
+            m_mapPresetCombo->setCurrentIndex(customIdx);
+        }
+    };
+
+    connect(m_mapWidthSpin, QOverload<int>::of(&QSpinBox::valueChanged), setToCustom);
+    connect(m_mapHeightSpin, QOverload<int>::of(&QSpinBox::valueChanged), setToCustom);
 
     // Slider UI
     m_landWaterSlider = new QSlider(Qt::Horizontal, this);
@@ -521,8 +572,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         if (seed == 0 && seedInput->text() != "0") seed = 12345;
         
         double landProp = m_landWaterSlider->value() / 100.0;
-        int size = m_mapPresetCombo->currentData().toInt();
-        m_engine.startSimulation(seed, landProp, size, size);
+        int width = m_mapWidthSpin->value();
+        int height = m_mapHeightSpin->value();
+        int numStatic = m_staticObsSpin->value();
+        int numDynamic = m_dynamicObsSpin->value();
+        m_engine.startSimulation(seed, landProp, width, height, numStatic, numDynamic);
         
         m_terrainView->resetView();
         m_terrainView->renderTerrainCache();

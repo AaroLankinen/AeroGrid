@@ -790,6 +790,27 @@ private slots:
         
         engine.stopSimulation();
     }
+
+    /**
+     * @brief Tests custom map size and configured static/dynamic obstacle counts.
+     */
+    void testCustomMapSizeAndObstacles() {
+        SimulationEngine engine;
+        engine.startSimulation(42, 0.6, 300, 400, 15, 8);
+        
+        // 1. Verify custom dimensions in TerrainMap
+        const auto& terrain = engine.getTerrain();
+        QCOMPARE(terrain.getWidth(), 300);
+        QCOMPARE(terrain.getHeight(), 400);
+        
+        // 2. Verify custom static obstacle count
+        QCOMPARE((int)terrain.getObstacles().size(), 15);
+        
+        // 3. Verify custom dynamic obstacle count
+        QCOMPARE((int)engine.getDynamicObstacleData().size(), 8);
+        
+        engine.stopSimulation();
+    }
 };
 
 QTEST_MAIN(TestAeroGrid)

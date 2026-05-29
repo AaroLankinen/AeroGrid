@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QSlider>
 #include <QComboBox>
+#include <QSpinBox>
 #include <set>
 #include <QHBoxLayout>
 #include "TelemetryModel.h"
@@ -41,6 +42,10 @@ private:
     QPushButton* m_takeOffBtn;
     QPushButton* m_rtbBtn;
     QComboBox* m_mapPresetCombo;
+    QSpinBox* m_mapWidthSpin;
+    QSpinBox* m_mapHeightSpin;
+    QSpinBox* m_staticObsSpin;
+    QSpinBox* m_dynamicObsSpin;
     QComboBox* m_modeSelector;
     QLabel* m_selectionLabel;
     QSlider* m_landWaterSlider;

@@ -18,10 +18,10 @@ namespace {
     }
 }
 
-TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize)
+TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize, int numStaticObstacles)
     : m_width(width), m_height(height), m_cellSize(cellSize), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
     initializeNoise(seed);
-    generateStaticObstacles(seed);
+    generateStaticObstacles(seed, numStaticObstacles);
     calculateWaterThreshold(landProp);
 }
 
@@ -33,14 +33,14 @@ void TerrainMap::initializeNoise(unsigned int seed) {
     m_permutation.insert(m_permutation.end(), m_permutation.begin(), m_permutation.end());
 }
 
-void TerrainMap::generateStaticObstacles(unsigned int seed) {
+void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacles) {
     // Procedural Static Obstacle Spawning
     std::srand(seed + 1); 
     const double halfWorldWidth = (m_width * m_cellSize) * 0.5;
     const double halfWorldHeight = (m_height * m_cellSize) * 0.5;
     const double helipadMargin = std::min(halfWorldWidth, halfWorldHeight) * 0.2;
 
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < numStaticObstacles; ++i) {
         double ox, oy, radius;
         bool valid;
         int attempts = 0;
