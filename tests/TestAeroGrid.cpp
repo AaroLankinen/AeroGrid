@@ -813,6 +813,124 @@ private slots:
     }
 
     /**
+     * @brief Verifies that all static obstacles (and all their footprint corners) are on dry land (height >= 1.0).
+     */
+    void testStaticObstaclesLandOnly() {
+        SimulationEngine engine;
+        // Start simulation with 50% land and 50% water
+        engine.startSimulation(42, 0.5, 200, 200, 30, 0);
+
+        const auto& terrain = engine.getTerrain();
+        const auto& obstacles = terrain.getObstacles();
+
+        QVERIFY(obstacles.size() > 0);
+
+        for (const auto& obs : obstacles) {
+            // Check center
+            QVERIFY2(terrain.getHeightAt(obs.x, obs.y) >= 1.0,
+                     QString("Obstacle %1 center at (%2, %3) is on water (height < 1.0)").arg(obs.id).arg(obs.x).arg(obs.y).toUtf8().constData());
+
+            // Check all footprint vertices
+            auto verts = obs.getVertices();
+            for (const auto& v : verts) {
+                QVERIFY2(terrain.getHeightAt(v.first, v.second) >= 1.0,
+                         QString("Obstacle %1 vertex at (%2, %3) is on water (height < 1.0)").arg(obs.id).arg(v.first).arg(v.second).toUtf8().constData());
+            }
+        }
+        engine.stopSimulation();
+    }
+
+    /**
+     * @brief Verifies that drones collide with flat faces of rectangular and triangular obstacles correctly based on velocity limits.
+     */
+    void testRectangleAndTriangleCollision() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 1.0, 200, 200, 2, 0); // Start simulation
+
+        // Clear existing obstacles and place custom Rectangle and Triangle
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            engine.m_terrain.m_staticObstacles.clear();
+
+            // 1. Rectangle: Centered at (10, 10), width=10, depth=10, height=30
+            StaticObstacle rectObs;
+            rectObs.id = 0;
+            rectObs.x = 10.0;
+            rectObs.y = 10.0;
+            rectObs.radius = 7.07;
+            rectObs.height = 30.0;
+            rectObs.shape = ObstacleShape::Rectangle;
+            rectObs.width = 10.0;
+            rectObs.depth = 10.0;
+            rectObs.rotation = 0.0; // aligned with axes
+            engine.m_terrain.m_staticObstacles.push_back(rectObs);
+
+            // 2. Triangle: Centered at (-10, -10), radius=6, height=30
+            StaticObstacle triObs;
+            triObs.id = 1;
+            triObs.x = -10.0;
+            triObs.y = -10.0;
+            triObs.radius = 6.0;
+            triObs.height = 30.0;
+            triObs.shape = ObstacleShape::Triangle;
+            triObs.rotation = 0.0;
+            engine.m_terrain.m_staticObstacles.push_back(triObs);
+        }
+
+        // Test 1: Low speed contact with Rectangle face (should not crash, but push back)
+        engine.launchDrone();
+        int d1Id = engine.getDroneData().at(0).id;
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(d1Id);
+            drone.status = DroneStatus::Flying;
+            // Drone radius = 0.3. Rectangle left boundary is x = 5.0.
+            // Place drone at x = 4.8 (slightly intersecting), y = 10.0
+            drone.x = 4.8;
+            drone.y = 10.0;
+            drone.z = engine.getTerrain().getHeightAt(drone.x, drone.y) + 10.0;
+            drone.vx = 0.0; drone.vy = 0.0; drone.vz = 0.0; // low speed
+        }
+
+        QTest::qWait(200);
+
+        {
+            auto drones = engine.getDroneData();
+            QCOMPARE(drones.at(0).status, DroneStatus::Flying);
+            // Drone should be pushed outside to x <= 4.7
+            QVERIFY(drones.at(0).x <= 4.71);
+            QVERIFY(drones.at(0).proximityAlert);
+        }
+
+        // Test 2: High speed contact with Rectangle face (should crash)
+        engine.launchDrone();
+        int d2Id = engine.getDroneData().at(1).id;
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(d2Id);
+            drone.status = DroneStatus::Flying;
+            // Place drone close to rectangle wall
+            drone.x = 4.5;
+            drone.y = 10.0;
+            drone.z = engine.getTerrain().getHeightAt(drone.x, drone.y) + 10.0;
+            // Target inside rectangle so it moves fast into it
+            double offsetX = (d2Id % 3 - 1) * 4.0;
+            double offsetY = (d2Id / 3 - 1) * 4.0;
+            drone.navQueue.push_back({10.0 - offsetX, 10.0 - offsetY, drone.z});
+        }
+
+        QTest::qWait(200);
+
+        {
+            auto drones = engine.getDroneData();
+            Drone d2 = (drones.at(0).id == d2Id) ? drones.at(0) : drones.at(1);
+            QCOMPARE(d2.status, DroneStatus::Crashed);
+        }
+
+        engine.stopSimulation();
+    }
+
+    /**
      * @brief Tests that landing on water always results in a crash.
      */
     void testWaterCollisionAlwaysCrashes() {

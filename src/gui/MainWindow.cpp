@@ -129,56 +129,165 @@ protected:
             double zBottom = obsH - 0.5; // Slightly lower than ground to prevent gaps
             double zTop = obsH + obs.height;
 
-            double projX, projY_bottom, dist;
-            if (!projectPoint(obs.x, obs.y, zBottom, drone, forward, right, projX, projY_bottom, dist, w, h)) {
-                continue;
-            }
-            if (dist > 150.0) continue; // Out of view distance
-
-            double projY_top;
-            double dummyDist;
-            projectPoint(obs.x, obs.y, zTop, drone, forward, right, projX, projY_top, dummyDist, w, h);
-
-            double K_x = 5.0 * (w / 32.0);
-            double halfWidth = (obs.radius / dist) * K_x;
-            if (halfWidth < 0.5) halfWidth = 0.5;
-
-            int xStart = qRound(projX - halfWidth);
-            int xEnd = qRound(projX + halfWidth);
-            int yStart = qRound(projY_top);
-            int yEnd = qRound(projY_bottom);
-
-            for (int px = xStart; px <= xEnd; ++px) {
-                if (px < 0 || px >= w) continue;
-
-                // Cylinder horizontal shading (darker at edges)
-                double t = 0.0;
-                if (halfWidth > 0.1) {
-                    t = qAbs(px - projX) / halfWidth;
+            if (obs.shape == ObstacleShape::Cylinder) {
+                // Draw Cylinder (Original Behavior)
+                double projX, projY_bottom, dist;
+                if (!projectPoint(obs.x, obs.y, zBottom, drone, forward, right, projX, projY_bottom, dist, w, h)) {
+                    continue;
                 }
-                t = qBound(0.0, t, 1.0);
+                if (dist > 150.0) continue; // Out of view distance
 
-                // Base crimson red color, shaded by distance
-                int red = qBound(50, 200 - qRound(dist * 0.8), 255);
-                int green = qBound(10, 30 - qRound(dist * 0.1), 255);
-                int blue = qBound(10, 30 - qRound(dist * 0.1), 255);
+                double projY_top;
+                double dummyDist;
+                projectPoint(obs.x, obs.y, zTop, drone, forward, right, projX, projY_top, dummyDist, w, h);
 
-                double shade = 1.0 - 0.4 * t;
-                red = qBound(0, qRound(red * shade), 255);
-                green = qBound(0, qRound(green * shade), 255);
-                blue = qBound(0, qRound(blue * shade), 255);
+                double K_x = 5.0 * (w / 32.0);
+                double halfWidth = (obs.radius / dist) * K_x;
+                if (halfWidth < 0.5) halfWidth = 0.5;
 
-                for (int py = yStart; py <= yEnd; ++py) {
-                    if (py < 0 || py >= h) continue;
+                int xStart = qRound(projX - halfWidth);
+                int xEnd = qRound(projX + halfWidth);
+                int yStart = qRound(projY_top);
+                int yEnd = qRound(projY_bottom);
 
-                    if (dist <= zBuffer[px][py]) {
-                        zBuffer[px][py] = dist;
+                for (int px = xStart; px <= xEnd; ++px) {
+                    if (px < 0 || px >= w) continue;
 
-                        bool isOutline = (px == xStart || px == xEnd || py == yStart || py == yEnd);
-                        if (isOutline) {
-                            image.setPixelColor(px, py, QColor(40, 5, 5));
-                        } else {
-                            image.setPixelColor(px, py, QColor(red, green, blue));
+                    // Cylinder horizontal shading (darker at edges)
+                    double t = 0.0;
+                    if (halfWidth > 0.1) {
+                        t = qAbs(px - projX) / halfWidth;
+                    }
+                    t = qBound(0.0, t, 1.0);
+
+                    // Base crimson red color, shaded by distance
+                    int red = qBound(50, 200 - qRound(dist * 0.8), 255);
+                    int green = qBound(10, 30 - qRound(dist * 0.1), 255);
+                    int blue = qBound(10, 30 - qRound(dist * 0.1), 255);
+
+                    double shade = 1.0 - 0.4 * t;
+                    red = qBound(0, qRound(red * shade), 255);
+                    green = qBound(0, qRound(green * shade), 255);
+                    blue = qBound(0, qRound(blue * shade), 255);
+
+                    for (int py = yStart; py <= yEnd; ++py) {
+                        if (py < 0 || py >= h) continue;
+
+                        if (dist <= zBuffer[px][py]) {
+                            zBuffer[px][py] = dist;
+
+                            bool isOutline = (px == xStart || px == xEnd || py == yStart || py == yEnd);
+                            if (isOutline) {
+                                image.setPixelColor(px, py, QColor(40, 5, 5));
+                            } else {
+                                image.setPixelColor(px, py, QColor(red, green, blue));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Draw oriented Rectangle or Triangle using flat-shaded faces
+                std::vector<std::pair<double, double>> verts = obs.getVertices();
+                if (verts.empty()) continue;
+
+                int numV = verts.size();
+                for (int f = 0; f < numV; ++f) {
+                    auto pA = verts[f];
+                    auto pB = verts[(f + 1) % numV];
+
+                    double projXa, projY_bottom_a, dist_a;
+                    double projXb, projY_bottom_b, dist_b;
+
+                    if (!projectPoint(pA.first, pA.second, zBottom, drone, forward, right, projXa, projY_bottom_a, dist_a, w, h) ||
+                        !projectPoint(pB.first, pB.second, zBottom, drone, forward, right, projXb, projY_bottom_b, dist_b, w, h)) {
+                        continue;
+                    }
+
+                    if (dist_a <= 0.1 || dist_b <= 0.1 || dist_a > 150.0 || dist_b > 150.0) continue;
+
+                    double projXa_top, projY_top_a;
+                    double projXb_top, projY_top_b;
+                    double dummyDist;
+                    projectPoint(pA.first, pA.second, zTop, drone, forward, right, projXa_top, projY_top_a, dummyDist, w, h);
+                    projectPoint(pB.first, pB.second, zTop, drone, forward, right, projXb_top, projY_top_b, dummyDist, w, h);
+
+                    // Sort corners by screen X
+                    double x1 = projXa, y_top1 = projY_top_a, y_bot1 = projY_bottom_a, d1 = dist_a;
+                    double x2 = projXb, y_top2 = projY_top_b, y_bot2 = projY_bottom_b, d2 = dist_b;
+
+                    if (x1 > x2) {
+                        std::swap(x1, x2);
+                        std::swap(y_top1, y_top2);
+                        std::swap(y_bot1, y_bot2);
+                        std::swap(d1, d2);
+                    }
+
+                    int xStart = qRound(x1);
+                    int xEnd = qRound(x2);
+                    if (xStart > xEnd || xEnd < 0 || xStart >= w) continue;
+
+                    // Calculate face normal
+                    double dx = pB.first - pA.first;
+                    double dy = pB.second - pA.second;
+                    double nx = dy;
+                    double ny = -dx;
+
+                    // Ensure normal points outward from center
+                    double midX = (pA.first + pB.first) * 0.5;
+                    double midY = (pA.second + pB.second) * 0.5;
+                    double vmidX = midX - obs.x;
+                    double vmidY = midY - obs.y;
+                    if (nx * vmidX + ny * vmidY < 0.0) {
+                        nx = -nx;
+                        ny = -ny;
+                    }
+
+                    double nLen = qSqrt(nx*nx + ny*ny);
+                    if (nLen > 0.001) {
+                        nx /= nLen;
+                        ny /= nLen;
+                    }
+
+                    // Shading with default diagonal light source (1.0, 1.0)
+                    double Lx = 0.707106, Ly = 0.707106;
+                    double dot = nx * Lx + ny * Ly;
+                    double cosTheta = qMax(0.2, 0.5 + 0.5 * dot);
+
+                    // Crimson base color
+                    double baseRed = 200.0 * cosTheta;
+                    double baseGreen = 30.0 * cosTheta;
+                    double baseBlue = 30.0 * cosTheta;
+
+                    int xStartClamped = qMax(0, xStart);
+                    int xEndClamped = qMin(w - 1, xEnd);
+
+                    for (int px = xStartClamped; px <= xEndClamped; ++px) {
+                        double u = (x1 == x2) ? 0.0 : (px - x1) / (x2 - x1);
+                        u = qBound(0.0, u, 1.0);
+
+                        // Perspective-correct depth interpolation
+                        double dist = 1.0 / ((1.0 - u) / d1 + u / d2);
+                        double yTop = y_top1 + u * (y_top2 - y_top1);
+                        double yBottom = y_bot1 + u * (y_bot2 - y_bot1);
+
+                        int yStart = qMax(0, qRound(yTop));
+                        int yEnd = qMin(h - 1, qRound(yBottom));
+
+                        int red = qBound(0, qRound(baseRed - dist * 0.8), 255);
+                        int green = qBound(0, qRound(baseGreen - dist * 0.1), 255);
+                        int blue = qBound(0, qRound(baseBlue - dist * 0.1), 255);
+
+                        for (int py = yStart; py <= yEnd; ++py) {
+                            if (dist <= zBuffer[px][py]) {
+                                zBuffer[px][py] = dist;
+
+                                bool isOutline = (px == xStart || px == xEnd || py == qRound(yTop) || py == qRound(yBottom));
+                                if (isOutline) {
+                                    image.setPixelColor(px, py, QColor(40, 5, 5));
+                                } else {
+                                    image.setPixelColor(px, py, QColor(red, green, blue));
+                                }
+                            }
                         }
                     }
                 }

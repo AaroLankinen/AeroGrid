@@ -3,6 +3,12 @@
 #include <cmath>
 #include <algorithm>
 
+enum class ObstacleShape {
+    Cylinder,
+    Rectangle,
+    Triangle
+};
+
 /**
  * @brief Represents a static obstacle (building or tower) in the terrain.
  * 
@@ -14,6 +20,43 @@ struct StaticObstacle {
     double x, y;            ///< Center position in the world (meters).
     double radius;          ///< Horizontal radius/footprint (meters).
     double height;          ///< Vertical extent above ground level (meters).
+    ObstacleShape shape = ObstacleShape::Cylinder; ///< Geometric primitive shape.
+    double width = 0.0;     ///< Dimension width for rectangles.
+    double depth = 0.0;     ///< Dimension depth for rectangles.
+    double rotation = 0.0;  ///< Rotation in radians.
+
+    std::vector<std::pair<double, double>> getVertices() const {
+        std::vector<std::pair<double, double>> vertices;
+        if (shape == ObstacleShape::Cylinder) {
+            for (int i = 0; i < 8; ++i) {
+                double angle = i * (M_PI / 4.0);
+                vertices.push_back({x + radius * std::cos(angle), y + radius * std::sin(angle)});
+            }
+        } else if (shape == ObstacleShape::Rectangle) {
+            double hw = width * 0.5;
+            double hd = depth * 0.5;
+            double cosR = std::cos(rotation);
+            double sinR = std::sin(rotation);
+            double dxs[4] = {-hw, hw, hw, -hw};
+            double dys[4] = {-hd, -hd, hd, hd};
+            for (int i = 0; i < 4; ++i) {
+                double wx = x + dxs[i] * cosR - dys[i] * sinR;
+                double wy = y + dxs[i] * sinR + dys[i] * cosR;
+                vertices.push_back({wx, wy});
+            }
+        } else if (shape == ObstacleShape::Triangle) {
+            double cosR = std::cos(rotation);
+            double sinR = std::sin(rotation);
+            double vxs[3] = {0.0, -radius * 0.866025, radius * 0.866025};
+            double vys[3] = {radius, -radius * 0.5, -radius * 0.5};
+            for (int i = 0; i < 3; ++i) {
+                double wx = x + vxs[i] * cosR - vys[i] * sinR;
+                double wy = y + vxs[i] * sinR + vys[i] * cosR;
+                vertices.push_back({wx, wy});
+            }
+        }
+        return vertices;
+    }
 };
 
 /**
@@ -57,6 +100,7 @@ struct DynamicObstacle {
  * from spawning near the base station.
  */
 class TerrainMap {
+    friend class TestAeroGrid;
 public:
     /**
      * @brief Constructs a procedurally generated terrain map.

@@ -21,8 +21,8 @@ namespace {
 TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize, int numStaticObstacles)
     : m_width(width), m_height(height), m_cellSize(cellSize), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
     initializeNoise(seed);
-    generateStaticObstacles(seed, numStaticObstacles);
     calculateWaterThreshold(landProp);
+    generateStaticObstacles(seed, numStaticObstacles);
 }
 
 void TerrainMap::initializeNoise(unsigned int seed) {
@@ -40,38 +40,166 @@ void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacl
     const double halfWorldHeight = (m_height * m_cellSize) * 0.5;
     const double helipadMargin = std::min(halfWorldWidth, halfWorldHeight) * 0.2;
 
-    for (int i = 0; i < numStaticObstacles; ++i) {
-        double ox, oy, radius;
+    int obstacleId = 0;
+
+    while (static_cast<int>(m_staticObstacles.size()) < numStaticObstacles) {
+        int remaining = numStaticObstacles - m_staticObstacles.size();
+        if (remaining <= 0) break;
+
         bool valid;
         int attempts = 0;
+        std::vector<StaticObstacle> group;
+
         do {
             valid = true;
-            ox = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldWidth) - halfWorldWidth;
-            oy = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldHeight) - halfWorldHeight;
-            radius = 3.0 + (std::rand() % 500) / 100.0;
+            group.clear();
 
-            // 1. Helipad Safety Zone: Keep buildings away from the central area
+            double ox = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldWidth) - halfWorldWidth;
+            double oy = (std::rand() / static_cast<double>(RAND_MAX)) * (2.0 * halfWorldHeight) - halfWorldHeight;
+
+            // 1. Helipad Safety Zone: Keep building centers away from the central area
             if (std::abs(ox) < helipadMargin && std::abs(oy) < helipadMargin) {
                 valid = false;
+                continue;
             }
 
-            // 2. Obstacle-to-Obstacle overlap check
-            if (valid) {
-                for (const auto& existing : m_staticObstacles) {
-                    double dx = ox - existing.x;
-                    double dy = oy - existing.y;
-                    double dist = qSqrt(dx*dx + dy*dy);
-                    // Maintain a minimum separation based on radii plus a safety buffer
-                    if (dist < (radius + existing.radius + 5.0)) {
+            // Determine type based on remaining slots
+            int type = 0;
+            if (numStaticObstacles > 1) {
+                if (remaining >= 5) {
+                    type = std::rand() % 6;
+                } else if (remaining >= 3) {
+                    type = std::rand() % 5;
+                } else if (remaining == 2) {
+                    type = std::rand() % 4;
+                } else {
+                    type = std::rand() % 3;
+                }
+            }
+
+            if (type == 0) {
+                // Cylinder
+                double radius = 3.0 + (std::rand() % 500) / 100.0;
+                double height = 10.0 + (std::rand() % 25);
+                group.push_back({0, ox, oy, radius, height, ObstacleShape::Cylinder, 0.0, 0.0, 0.0});
+            } else if (type == 1) {
+                // Rectangle
+                double width = 6.0 + (std::rand() % 800) / 100.0;
+                double depth = 6.0 + (std::rand() % 800) / 100.0;
+                double height = 10.0 + (std::rand() % 25);
+                double rotation = (std::rand() % 628) / 100.0;
+                double radius = qSqrt(width * width + depth * depth) * 0.5;
+                group.push_back({0, ox, oy, radius, height, ObstacleShape::Rectangle, width, depth, rotation});
+            } else if (type == 2) {
+                // Triangle
+                double radius = 5.0 + (std::rand() % 700) / 100.0; // Distance to vertices
+                double height = 10.0 + (std::rand() % 25);
+                double rotation = (std::rand() % 628) / 100.0;
+                group.push_back({0, ox, oy, radius, height, ObstacleShape::Triangle, 0.0, 0.0, rotation});
+            } else if (type == 3) {
+                // L-shape (2 rectangles)
+                double S = 10.0 + (std::rand() % 800) / 100.0;
+                double height = 12.0 + (std::rand() % 20);
+                double rotation = (std::rand() % 628) / 100.0;
+                double cosR = qCos(rotation);
+                double sinR = qSin(rotation);
+
+                // local R1: (-S/4, 0), width S/2, depth S
+                double lx1 = -S * 0.25; double ly1 = 0.0;
+                double x1 = ox + lx1 * cosR - ly1 * sinR;
+                double y1 = oy + lx1 * sinR + ly1 * cosR;
+
+                // local R2: (0, -S/4), width S, depth S/2
+                double lx2 = 0.0; double ly2 = -S * 0.25;
+                double x2 = ox + lx2 * cosR - ly2 * sinR;
+                double y2 = oy + lx2 * sinR + ly2 * cosR;
+
+                double r1 = qSqrt((S * 0.5) * (S * 0.5) + S * S) * 0.5;
+                double r2 = qSqrt(S * S + (S * 0.5) * (S * 0.5)) * 0.5;
+
+                group.push_back({0, x1, y1, r1, height, ObstacleShape::Rectangle, S * 0.5, S, rotation});
+                group.push_back({0, x2, y2, r2, height, ObstacleShape::Rectangle, S, S * 0.5, rotation});
+            } else if (type == 4) {
+                // Step Pyramid (2 rectangles, 1 cylinder spire)
+                double S = 12.0 + (std::rand() % 800) / 100.0;
+                double height = 15.0 + (std::rand() % 25);
+                double rotation = (std::rand() % 628) / 100.0;
+
+                double rBase = S * 0.707;
+                double rMid = S * 0.7 * 0.707;
+                double rTop = S * 0.2;
+
+                group.push_back({0, ox, oy, rBase, height * 0.4, ObstacleShape::Rectangle, S, S, rotation});
+                group.push_back({0, ox, oy, rMid, height * 0.75, ObstacleShape::Rectangle, S * 0.7, S * 0.7, rotation});
+                group.push_back({0, ox, oy, rTop, height, ObstacleShape::Cylinder, 0.0, 0.0, 0.0});
+            } else {
+                // Fortress (1 rectangle, 4 corner cylinders)
+                double W = 12.0 + (std::rand() % 600) / 100.0;
+                double D = 12.0 + (std::rand() % 600) / 100.0;
+                double height = 12.0 + (std::rand() % 15);
+                double rotation = (std::rand() % 628) / 100.0;
+                double cosR = qCos(rotation);
+                double sinR = qSin(rotation);
+
+                double rBase = qSqrt(W * W + D * D) * 0.5;
+                group.push_back({0, ox, oy, rBase, height, ObstacleShape::Rectangle, W, D, rotation});
+
+                double rc = qMin(W, D) * 0.15;
+                double hc = height * 1.25;
+
+                // local corners:
+                double dxs[4] = {-W * 0.5, W * 0.5, W * 0.5, -W * 0.5};
+                double dys[4] = {-D * 0.5, -D * 0.5, D * 0.5, D * 0.5};
+
+                for (int c = 0; c < 4; ++c) {
+                    double cx = ox + dxs[c] * cosR - dys[c] * sinR;
+                    double cy = oy + dxs[c] * sinR + dys[c] * cosR;
+                    group.push_back({0, cx, cy, rc, hc, ObstacleShape::Cylinder, 0.0, 0.0, 0.0});
+                }
+            }
+
+            // 2. Enforce entire footprint is on dry land (groundHeight >= 1.0)
+            for (const auto& prim : group) {
+                // Check all vertices of this primitive
+                auto vertices = prim.getVertices();
+                // Also check the center point
+                vertices.push_back({prim.x, prim.y});
+
+                for (const auto& pt : vertices) {
+                    if (getHeightAt(pt.first, pt.second) < 1.0) {
                         valid = false;
                         break;
                     }
                 }
+                if (!valid) break;
             }
+            if (!valid) continue;
+
+            // 3. Obstacle-to-Obstacle overlap checks against already spawned obstacles
+            for (const auto& prim : group) {
+                for (const auto& existing : m_staticObstacles) {
+                    double dx = prim.x - existing.x;
+                    double dy = prim.y - existing.y;
+                    double dist = qSqrt(dx * dx + dy * dy);
+                    // Prevent overlaps with existing separate buildings
+                    if (dist < (prim.radius + existing.radius + 4.0)) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (!valid) break;
+            }
+
         } while (!valid && ++attempts < 50);
 
-        double height = 10.0 + (std::rand() % 20);
-        m_staticObstacles.push_back({i, ox, oy, radius, height});
+        if (valid) {
+            for (auto& prim : group) {
+                prim.id = obstacleId++;
+                m_staticObstacles.push_back(prim);
+            }
+        } else {
+            break;
+        }
     }
 }
 

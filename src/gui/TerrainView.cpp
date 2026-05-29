@@ -351,9 +351,18 @@ void TerrainView::paintEvent(QPaintEvent*) {
     painter.setBrush(QColor(255, 0, 0, 180)); 
     painter.setPen(QPen(Qt::black, 1));
     for (const auto& obs : terrain.getObstacles()) {
-        QPointF screenPos = worldToScreenOnScreen(obs.x, obs.y);
-        float screenRadius = static_cast<float>(obs.radius * ppm);
-        painter.drawEllipse(screenPos, screenRadius, screenRadius);
+        if (obs.shape == ObstacleShape::Cylinder) {
+            QPointF screenPos = worldToScreenOnScreen(obs.x, obs.y);
+            float screenRadius = static_cast<float>(obs.radius * ppm);
+            painter.drawEllipse(screenPos, screenRadius, screenRadius);
+        } else {
+            auto verts = obs.getVertices();
+            QPolygonF poly;
+            for (const auto& v : verts) {
+                poly << worldToScreenOnScreen(v.first, v.second);
+            }
+            painter.drawPolygon(poly);
+        }
     }
 
     // Draw Dynamic Obstacles (High Contrast Orange)

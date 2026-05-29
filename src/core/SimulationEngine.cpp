@@ -1,5 +1,6 @@
 #include "SimulationEngine.h"
 #include <chrono>
+#include <QPointF>
 #include <thread>
 #include <cstdlib>
 #include <ctime>
@@ -9,6 +10,150 @@
 #include <algorithm>
 #include <QtMath>
 #include "Constants.h"
+
+namespace {
+    double getDistanceToObstacle(const StaticObstacle& obs, double px, double py, double& outNormalX, double& outNormalY) {
+        if (obs.shape == ObstacleShape::Cylinder) {
+            double dx = px - obs.x;
+            double dy = py - obs.y;
+            double dist2D = qSqrt(dx*dx + dy*dy);
+            if (dist2D > 0.001) {
+                outNormalX = dx / dist2D;
+                outNormalY = dy / dist2D;
+                return dist2D - obs.radius;
+            } else {
+                outNormalX = 1.0;
+                outNormalY = 0.0;
+                return -obs.radius;
+            }
+        } else if (obs.shape == ObstacleShape::Rectangle) {
+            double dx = px - obs.x;
+            double dy = py - obs.y;
+            double cosR = qCos(obs.rotation);
+            double sinR = qSin(obs.rotation);
+            double lx = dx * cosR + dy * sinR;
+            double ly = -dx * sinR + dy * cosR;
+
+            double hx = obs.width * 0.5;
+            double hy = obs.depth * 0.5;
+
+            double ax = qAbs(lx) - hx;
+            double ay = qAbs(ly) - hy;
+
+            double ex = qMax(0.0, ax);
+            double ey = qMax(0.0, ay);
+
+            double inDist = qMin(0.0, qMax(ax, ay));
+            double dist = qSqrt(ex*ex + ey*ey) + inDist;
+
+            double lnx = 0.0, lny = 0.0;
+            if (qMax(ax, ay) > 0.0) {
+                if (ax > 0.0 && ay > 0.0) {
+                    lnx = lx > 0.0 ? ax : -ax;
+                    lny = ly > 0.0 ? ay : -ay;
+                    double len = qSqrt(lnx*lnx + lny*lny);
+                    if (len > 0.001) {
+                        lnx /= len;
+                        lny /= len;
+                    }
+                } else if (ax > 0.0) {
+                    lnx = lx > 0.0 ? 1.0 : -1.0;
+                    lny = 0.0;
+                } else {
+                    lnx = 0.0;
+                    lny = ly > 0.0 ? 1.0 : -1.0;
+                }
+            } else {
+                if (ax > ay) {
+                    lnx = lx > 0.0 ? 1.0 : -1.0;
+                    lny = 0.0;
+                } else {
+                    lnx = 0.0;
+                    lny = ly > 0.0 ? 1.0 : -1.0;
+                }
+            }
+
+            outNormalX = lnx * cosR - lny * sinR;
+            outNormalY = lnx * sinR + lny * cosR;
+            return dist;
+        } else if (obs.shape == ObstacleShape::Triangle) {
+            double r = obs.radius;
+            double vxs[3] = {0.0, -r * 0.8660254, r * 0.8660254};
+            double vys[3] = {r, -r * 0.5, -r * 0.5};
+
+            double dx = px - obs.x;
+            double dy = py - obs.y;
+            double cosR = qCos(obs.rotation);
+            double sinR = qSin(obs.rotation);
+            double lx = dx * cosR + dy * sinR;
+            double ly = -dx * sinR + dy * cosR;
+
+            QPointF V0(vxs[0], vys[0]);
+            QPointF V1(vxs[1], vys[1]);
+            QPointF V2(vxs[2], vys[2]);
+
+            auto sqDistToSegment = [](const QPointF& p, const QPointF& a, const QPointF& b, QPointF& outClosest) -> double {
+                double abx = b.x() - a.x();
+                double aby = b.y() - a.y();
+                double apx = p.x() - a.x();
+                double apy = p.y() - a.y();
+                double ab2 = abx*abx + aby*aby;
+                double t = 0.0;
+                if (ab2 > 0.0001) {
+                    t = (apx*abx + apy*aby) / ab2;
+                }
+                t = qBound(0.0, t, 1.0);
+                outClosest = QPointF(a.x() + t * abx, a.y() + t * aby);
+                double cpx = p.x() - outClosest.x();
+                double cpy = p.y() - outClosest.y();
+                return cpx*cpx + cpy*cpy;
+            };
+
+            QPointF P(lx, ly);
+            QPointF c0, c1, c2;
+            double d0 = sqDistToSegment(P, V1, V2, c0);
+            double d1 = sqDistToSegment(P, V2, V0, c1);
+            double d2 = sqDistToSegment(P, V0, V1, c2);
+
+            double minDistSq = d0;
+            QPointF closest = c0;
+            if (d1 < minDistSq) { minDistSq = d1; closest = c1; }
+            if (d2 < minDistSq) { minDistSq = d2; closest = c2; }
+
+            double dist = qSqrt(minDistSq);
+
+            double cross0 = (lx - V1.x())*(V0.y() - V1.y()) - (ly - V1.y())*(V0.x() - V1.x());
+            double cross1 = (lx - V2.x())*(V1.y() - V2.y()) - (ly - V2.y())*(V1.x() - V2.x());
+            double cross2 = (lx - V0.x())*(V2.y() - V0.y()) - (ly - V0.y())*(V2.x() - V0.x());
+            bool inside = (cross0 <= 0 && cross1 <= 0 && cross2 <= 0) || (cross0 >= 0 && cross1 >= 0 && cross2 >= 0);
+
+            if (inside) {
+                dist = -dist;
+            }
+
+            double lnx = lx - closest.x();
+            double lny = ly - closest.y();
+            double len = qSqrt(lnx*lnx + lny*lny);
+            if (len > 0.001) {
+                lnx /= len;
+                lny /= len;
+            } else {
+                lnx = 0.0;
+                lny = 1.0;
+            }
+            if (inside) {
+                lnx = -lnx;
+                lny = -lny;
+            }
+
+            outNormalX = lnx * cosR - lny * sinR;
+            outNormalY = lnx * sinR + lny * cosR;
+            return dist;
+        }
+        outNormalX = 1.0; outNormalY = 0.0;
+        return 1e9;
+    }
+}
 
 SimulationEngine::SimulationEngine(QObject* parent) 
     : QObject(parent), m_running(false), m_workerThread(nullptr) {
@@ -262,32 +407,39 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dx = drone.x - obs.x;
         double dy = drone.y - obs.y;
         double dist2D = qSqrt(dx*dx + dy*dy);
-        double minDist = drone.radius + obs.radius;
-        double safeZone = minDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
+
+        double coarseMinDist = drone.radius + obs.radius;
+        double coarseSafeZone = coarseMinDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
 
         double obsGroundHeight = m_terrain.getHeightAt(obs.x, obs.y);
         double absoluteObsHeight = obsGroundHeight + obs.height;
-        if (drone.z < absoluteObsHeight + 2.0) {
-            if (dist2D < safeZone && dist2D > 0.001) {
-                drone.proximityAlert = true;
-                double push = (safeZone - dist2D) * AeroGrid::Physics::REPULSION_FORCE_STATIC;
-                if (drone.status == DroneStatus::Flying) {
-                    drone.vx += (dx / dist2D) * push;
-                    drone.vy += (dy / dist2D) * push;
-                }
-            }
 
-            if (dist2D < minDist && drone.z < absoluteObsHeight) {
-                double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
-                if (speed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
-                    drone.status = DroneStatus::Crashed;
-                    drone.vx = drone.vy = drone.vz = 0;
+        if (drone.z < absoluteObsHeight + 2.0) {
+            if (dist2D < coarseSafeZone) {
+                double normalX = 0.0, normalY = 0.0;
+                double sdfDist = getDistanceToObstacle(obs, drone.x, drone.y, normalX, normalY);
+
+                double minDist = drone.radius;
+                double safeZone = minDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
+
+                if (sdfDist < safeZone) {
+                    drone.proximityAlert = true;
+                    double push = (safeZone - sdfDist) * AeroGrid::Physics::REPULSION_FORCE_STATIC;
+                    if (drone.status == DroneStatus::Flying) {
+                        drone.vx += normalX * push;
+                        drone.vy += normalY * push;
+                    }
                 }
-                if (dist2D > 0.001) {
-                    drone.x = obs.x + (dx / dist2D) * minDist;
-                    drone.y = obs.y + (dy / dist2D) * minDist;
-                } else {
-                    drone.x += minDist;
+
+                if (sdfDist < minDist && drone.z < absoluteObsHeight) {
+                    double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+                    if (speed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
+                        drone.status = DroneStatus::Crashed;
+                        drone.vx = drone.vy = drone.vz = 0;
+                    }
+                    double overlap = minDist - sdfDist;
+                    drone.x += normalX * overlap;
+                    drone.y += normalY * overlap;
                 }
             }
         }
