@@ -12,6 +12,18 @@
 #include "Constants.h"
 
 namespace {
+    /**
+     * @brief Computes the 2D signed distance (SDF) and outward normal vector from a point to a static obstacle.
+     * 
+     * Handles Cylinders, oriented Rectangles, and Triangles.
+     *
+     * @param obs The static obstacle being queried.
+     * @param px Query point X coordinate (meters).
+     * @param py Query point Y coordinate (meters).
+     * @param outNormalX [out] Outward-facing normal vector X component at the closest boundary point.
+     * @param outNormalY [out] Outward-facing normal vector Y component at the closest boundary point.
+     * @return Signed distance to the obstacle boundary (negative inside, positive outside).
+     */
     double getDistanceToObstacle(const StaticObstacle& obs, double px, double py, double& outNormalX, double& outNormalY) {
         if (obs.shape == ObstacleShape::Cylinder) {
             double dx = px - obs.x;

@@ -41,13 +41,13 @@ private:
     QPushButton* m_landBtn;
     QPushButton* m_takeOffBtn;
     QPushButton* m_rtbBtn;
-    QComboBox* m_mapPresetCombo;
-    QSpinBox* m_mapWidthSpin;
-    QSpinBox* m_mapHeightSpin;
-    QSpinBox* m_staticObsSpin;
-    QSpinBox* m_dynamicObsSpin;
-    QComboBox* m_modeSelector;
-    QLabel* m_selectionLabel;
-    QSlider* m_landWaterSlider;
-    QLabel* m_landWaterLabel;
+    QComboBox* m_mapPresetCombo;                ///< Combo box for map dimension presets.
+    QSpinBox* m_mapWidthSpin;                   ///< Spin box for custom map width.
+    QSpinBox* m_mapHeightSpin;                  ///< Spin box for custom map height.
+    QSpinBox* m_staticObsSpin;                  ///< Spin box for custom number of static obstacles.
+    QSpinBox* m_dynamicObsSpin;                 ///< Spin box for custom number of dynamic obstacles.
+    QComboBox* m_modeSelector;                  ///< Dropdown selector for drone flight modes.
+    QLabel* m_selectionLabel;                   ///< Label displaying information about the selected drone(s).
+    QSlider* m_landWaterSlider;                 ///< Slider to control the land proportion.
+    QLabel* m_landWaterLabel;                   ///< Label displaying current land proportion value.
 };

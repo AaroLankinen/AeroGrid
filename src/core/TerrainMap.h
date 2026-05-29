@@ -25,6 +25,15 @@ struct StaticObstacle {
     double depth = 0.0;     ///< Dimension depth for rectangles.
     double rotation = 0.0;  ///< Rotation in radians.
 
+    /**
+     * @brief Computes and returns the 2D world-space coordinates of the obstacle's footprint vertices.
+     * 
+     * - Cylinder: Samples 8 boundary points on the circular footprint.
+     * - Rectangle: Computes the 4 corners of the rotated box.
+     * - Triangle: Computes the 3 vertices of the rotated equilateral triangle.
+     * 
+     * @return A vector of (x, y) coordinate pairs representing footprint vertices.
+     */
     std::vector<std::pair<double, double>> getVertices() const {
         std::vector<std::pair<double, double>> vertices;
         if (shape == ObstacleShape::Cylinder) {
@@ -200,7 +209,12 @@ private:
     /**
      * @brief Procedurally places buildings on land while respecting safety margins.
      * 
-     * Keeps obstacles away from the central helipad zone and prevents overlaps.
+     * Ensures that the entire footprint of each obstacle (including corners and boundary points)
+     * resides on dry land (height >= 1.0). Spawns single primitives (cylinders, rectangles, triangles)
+     * and compound architectural shapes (step pyramids, L-shapes, and corner-tower fortresses).
+     *
+     * @param seed Seed for random procedural placement.
+     * @param numStaticObstacles Maximum target number of building primitives to spawn.
      */
     void generateStaticObstacles(unsigned int seed, int numStaticObstacles);
     
