@@ -68,6 +68,7 @@ struct Drone {
     // Special States
     bool returningToBase;           ///< True if drone is performing RTB (Return To Base) sequence.
     bool proximityAlert;            ///< True if drone is currently inside a repulsion field or near obstacles.
+    bool takingOff;                 ///< True if the drone is in its vertical takeoff phase.
 
     /**
      * @brief Constructs a Drone with default initial state.
@@ -83,7 +84,7 @@ struct Drone {
                      roll(0),
                      batteryLevel(100.0), status(DroneStatus::Flying),
                      signalStrength(1.0), radius(AeroGrid::Physics::DRONE_RADIUS), navMode(NavigationMode::Manual),
-                     returningToBase(false), proximityAlert(false) {}
+                     returningToBase(false), proximityAlert(false), takingOff(false) {}
 
     /**
      * @brief Centralized logic for calculating the minimum battery required for a safe descent.

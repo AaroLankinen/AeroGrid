@@ -373,39 +373,53 @@ void SimulationEngine::calculateDroneMovement(Drone& drone, double groundHeight,
     if (drone.status == DroneStatus::Landing || drone.status == DroneStatus::EmergencyLanding) {
         drone.vx = drone.vy = 0;
         drone.vz = (altitudeAGL > AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL) ? AeroGrid::Physics::LANDING_FAST_SPEED : AeroGrid::Physics::LANDING_SLOW_SPEED;
-    } else if (!drone.navQueue.empty()) {
-        const auto& target = drone.navQueue.front();
-        double offsetX = (drone.id % 3 - 1) * 4.0;
-        double offsetY = (drone.id / 3 - 1) * 4.0;
-        double tx = target.x + offsetX;
-        double ty = target.y + offsetY;
-        double tz = target.z;
-
-        if (drone.navMode == NavigationMode::MaxAltitude) tz = AeroGrid::Physics::STANDARD_CRUISE_ALTITUDE;
-        else if (drone.navMode == NavigationMode::TerrainSkimming) tz = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
-
-        double dx = tx - drone.x;
-        double dy = ty - drone.y;
-        double dz = tz - drone.z;
-        double dist = qSqrt(dx*dx + dy*dy + dz*dz);
-
-        if (dist > AeroGrid::Physics::MIN_DRONE_DIST) {
-            drone.vx = (dx / dist) * 5.0;
-            drone.vy = (dy / dist) * 5.0;
-            drone.vz = (dz / dist) * 5.0;
-        } else {
-            drone.navQueue.erase(drone.navQueue.begin());
-            if (drone.returningToBase && drone.navQueue.empty()) drone.status = DroneStatus::Landing;
-            drone.vx = drone.vy = drone.vz = 0;
-        }
     } else {
-        double minSafeZ = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
-        if (drone.z < minSafeZ - 0.1) {
-            drone.vx = drone.vy = 0;
-            drone.vz = qAbs(AeroGrid::Physics::LANDING_SLOW_SPEED);
-        } else {
-            drone.vx = drone.vy = drone.vz = 0;
-            if (drone.z < minSafeZ) drone.z = minSafeZ;
+        if (drone.takingOff) {
+            if (drone.z < groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL) {
+                drone.vx = 0;
+                drone.vy = 0;
+                drone.vz = AeroGrid::Physics::ASCENT_SPEED;
+            } else {
+                drone.takingOff = false;
+            }
+        }
+
+        if (!drone.takingOff) {
+            if (!drone.navQueue.empty()) {
+                const auto& target = drone.navQueue.front();
+                double offsetX = (drone.id % 3 - 1) * 4.0;
+                double offsetY = (drone.id / 3 - 1) * 4.0;
+                double tx = target.x + offsetX;
+                double ty = target.y + offsetY;
+                double tz = target.z;
+
+                if (drone.navMode == NavigationMode::MaxAltitude) tz = AeroGrid::Physics::STANDARD_CRUISE_ALTITUDE;
+                else if (drone.navMode == NavigationMode::TerrainSkimming) tz = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
+
+                double dx = tx - drone.x;
+                double dy = ty - drone.y;
+                double dz = tz - drone.z;
+                double dist = qSqrt(dx*dx + dy*dy + dz*dz);
+
+                if (dist > AeroGrid::Physics::MIN_DRONE_DIST) {
+                    drone.vx = (dx / dist) * 5.0;
+                    drone.vy = (dy / dist) * 5.0;
+                    drone.vz = (dz / dist) * 5.0;
+                } else {
+                    drone.navQueue.erase(drone.navQueue.begin());
+                    if (drone.returningToBase && drone.navQueue.empty()) drone.status = DroneStatus::Landing;
+                    drone.vx = drone.vy = drone.vz = 0;
+                }
+            } else {
+                double minSafeZ = groundHeight + AeroGrid::Physics::MIN_SAFE_ALTITUDE_AGL;
+                if (drone.z < minSafeZ - 0.1) {
+                    drone.vx = drone.vy = 0;
+                    drone.vz = qAbs(AeroGrid::Physics::LANDING_SLOW_SPEED);
+                } else {
+                    drone.vx = drone.vy = drone.vz = 0;
+                    if (drone.z < minSafeZ) drone.z = minSafeZ;
+                }
+            }
         }
     }
 
@@ -689,6 +703,7 @@ void SimulationEngine::takeOff(int id) {
 
             if (drone.batteryLevel > batteryRequiredToTakeoff) {
                 drone.status = DroneStatus::Flying;
+                drone.takingOff = true;
                 drone.vz = 2.0; // Initial ascent thrust
             }
         }

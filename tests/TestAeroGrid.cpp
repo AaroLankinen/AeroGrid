@@ -813,6 +813,70 @@ private slots:
     }
 
     /**
+     * @brief Verifies that a drone climbs vertically only during the takeoff phase until it clears the safe altitude.
+     */
+    void testTakeoffVerticalOnly() {
+        SimulationEngine engine;
+        engine.startSimulation(1, 1.0, 200, 200, 0, 0); // Flat land, no obstacles
+
+        engine.launchDrone();
+        int droneId = engine.getDroneData().at(0).id;
+
+        // Assign a target far away
+        engine.assignTarget(droneId, 50.0, 50.0, NavigationMode::Manual);
+
+        // Initiate takeoff
+        engine.takeOff(droneId);
+
+        // Access internal drone state
+        {
+            std::shared_lock<std::shared_mutex> lock(engine.m_mutex);
+            const auto& drone = engine.m_drones.at(droneId);
+            QVERIFY(drone.takingOff);
+            QCOMPARE(drone.vx, 0.0);
+            QCOMPARE(drone.vy, 0.0);
+        }
+
+        // Simulate a few physics steps of climbing (dt = 0.05s)
+        const double dt = 0.05;
+        double dx = 0.0, dy = 0.0;
+        {
+            std::shared_lock<std::shared_mutex> lock(engine.m_mutex);
+            dx = engine.m_drones.at(droneId).x;
+            dy = engine.m_drones.at(droneId).y;
+        }
+        double groundHeight = engine.getTerrain().getHeightAt(dx, dy);
+
+        for (int i = 0; i < 5; ++i) {
+            {
+                std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+                auto& drone = engine.m_drones.at(droneId);
+                engine.updateDroneState(drone, dt);
+                
+                // Position should climb vertically only
+                QVERIFY(drone.z > groundHeight);
+                QCOMPARE(drone.vx, 0.0);
+                QCOMPARE(drone.vy, 0.0);
+                QVERIFY(drone.takingOff);
+            }
+        }
+
+        // Fast-forward drone altitude to clear the safe threshold (5.0m AGL)
+        {
+            std::unique_lock<std::shared_mutex> lock(engine.m_mutex);
+            auto& drone = engine.m_drones.at(droneId);
+            drone.z = groundHeight + 6.0; // above 5.0m safe altitude AGL
+            engine.updateDroneState(drone, dt);
+
+            // Once safe altitude is cleared, horizontal velocities should become active
+            QVERIFY(!drone.takingOff);
+            QVERIFY(qAbs(drone.vx) > 0.01 || qAbs(drone.vy) > 0.01);
+        }
+
+        engine.stopSimulation();
+    }
+
+    /**
      * @brief Verifies that all static obstacles (and all their footprint corners) are on dry land (height >= 1.0).
      */
     void testStaticObstaclesLandOnly() {
