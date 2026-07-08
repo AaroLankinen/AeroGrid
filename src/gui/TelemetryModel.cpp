@@ -25,6 +25,7 @@ QVariant TelemetryModel::data(const QModelIndex& index, int role) const {
 
     if (role == Qt::BackgroundRole) {
         if (drone.status == DroneStatus::Crashed) return QBrush(AeroGrid::UI::COLOR_TABLE_CRASHED); 
+        if (drone.status == DroneStatus::Disconnected) return QBrush(AeroGrid::UI::COLOR_TABLE_DISCONNECTED); 
 
         double groundHeight = m_engine->getTerrain().getHeightAt(drone.x, drone.y);
         double batteryRequiredToLand = drone.calculateBatteryRequiredToLand(groundHeight);

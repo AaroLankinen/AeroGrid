@@ -168,7 +168,7 @@ namespace {
 }
 
 SimulationEngine::SimulationEngine(QObject* parent) 
-    : QObject(parent), m_running(false), m_workerThread(nullptr) {
+    : QObject(parent), m_running(false), m_enableSignalLoss(false), m_workerThread(nullptr) {
     std::srand(std::time(nullptr)); // Seed random for GPS drift
 }
 
@@ -176,14 +176,18 @@ SimulationEngine::~SimulationEngine() {
     stopSimulation();
 }
 
-void SimulationEngine::startSimulation(unsigned int seed, double landProp, int width, int height, int numStaticObstacles, int numDynamicObstacles) {
+void SimulationEngine::startSimulation(unsigned int seed, double landProp, int width, int height, int numStaticObstacles, int numDynamicObstacles, bool enableSignalLoss) {
     if (m_running) stopSimulation();
+    
+    m_enableSignalLoss = enableSignalLoss;
     
     // Re-initialize terrain with the provided seed and preset dimensions
     m_terrain = TerrainMap(seed, landProp, width, height, 1.0, numStaticObstacles);
     std::srand(seed); 
 
     m_drones.clear();
+    m_physicalDrones.clear();
+    m_controllers.clear();
     m_baseInventory.clear();
 
     const double halfWorldWidth = m_terrain.getWorldWidth() * 0.5;
@@ -244,24 +248,31 @@ void SimulationEngine::stopSimulation() {
 }
 
 void SimulationEngine::processHangarLogic() {
-    auto it = m_drones.begin();
-    while (it != m_drones.end()) {
-        // If a drone has returned to base and landed, move it to inventory
-        Drone& d = it->second;
-        if (d.status == DroneStatus::Landed && d.returningToBase) {
-            double dx = d.x - m_baseX;
-            double dy = d.y - m_baseY;
+    auto it = m_physicalDrones.begin();
+    while (it != m_physicalDrones.end()) {
+        Drone& pd = it->second;
+        auto ctrlIt = m_controllers.find(pd.id);
+        if (pd.status == DroneStatus::Landed && ctrlIt != m_controllers.end() && ctrlIt->second.isReturningToBase()) {
+            double dx = pd.x - m_baseX;
+            double dy = pd.y - m_baseY;
             double dist = qSqrt(dx*dx + dy*dy);
             
-            if (dist < 10.0) { // Within 10m of helipad center (accommodates grid landing)
-                d.returningToBase = false;
-                d.navQueue.clear();
+            if (dist < 10.0) {
+                pd.returningToBase = false;
+                pd.navQueue.clear();
                 
-                // Maintain sorted order by ID when returning to inventory
-                auto insertPos = std::lower_bound(m_baseInventory.begin(), m_baseInventory.end(), d,
+                pd.x = pd.y = pd.z = 0.0;
+                pd.vx = pd.vy = pd.vz = 0.0;
+                pd.yaw = pd.pitch = AeroGrid::Physics::CAMERA_PITCH_IDLE;
+                pd.roll = 0.0;
+                pd.status = DroneStatus::Landed;
+                
+                auto insertPos = std::lower_bound(m_baseInventory.begin(), m_baseInventory.end(), pd,
                     [](const Drone& a, const Drone& b) { return a.id < b.id; });
-                m_baseInventory.insert(insertPos, d);
-                it = m_drones.erase(it);
+                m_baseInventory.insert(insertPos, pd);
+                m_drones.erase(pd.id);
+                m_controllers.erase(pd.id);
+                it = m_physicalDrones.erase(it);
                 continue;
             }
         }
@@ -277,9 +288,62 @@ void SimulationEngine::run() {
             updateDynamicObstacles(dt);
             processHangarLogic();
             updateHangarDrones();
+            
+            // Synchronize any external/test modifications from telemetry database back to physical states and controllers
             for (auto& pair : m_drones) {
-                updateDroneState(pair.second, dt);
+                int id = pair.first;
+                const Drone& telD = pair.second;
+                auto physIt = m_physicalDrones.find(id);
+                if (physIt != m_physicalDrones.end()) {
+                    Drone& pd = physIt->second;
+                    if (telD.x != pd.x || telD.y != pd.y || telD.z != pd.z || telD.status != pd.status || telD.batteryLevel != pd.batteryLevel) {
+                        pd.x = telD.x;
+                        pd.y = telD.y;
+                        pd.z = telD.z;
+                        pd.status = telD.status;
+                        pd.batteryLevel = telD.batteryLevel;
+                        pd.vx = telD.vx;
+                        pd.vy = telD.vy;
+                        pd.vz = telD.vz;
+                    }
+                    
+                    auto ctrlIt = m_controllers.find(id);
+                    if (ctrlIt != m_controllers.end()) {
+                        ctrlIt->second.setUserLanding(pd.status == DroneStatus::Landing);
+                        ctrlIt->second.setEmergencyLanding(pd.status == DroneStatus::EmergencyLanding);
+                        if (telD.navQueue.size() != ctrlIt->second.getLocalNavQueue().size()) {
+                            ctrlIt->second.setLocalNavQueue(telD.navQueue);
+                        }
+                    }
+                }
             }
+            
+            for (auto& pair : m_physicalDrones) {
+                Drone& pd = pair.second;
+                updateDroneState(pd, dt);
+                
+                bool lost = (pd.signalStrength < 0.1);
+                auto ctrlIt = m_controllers.find(pd.id);
+                if (ctrlIt != m_controllers.end()) {
+                    if (!lost) {
+                        Drone telemetryDrone = pd;
+                        telemetryDrone.navQueue = ctrlIt->second.getLocalNavQueue();
+                        telemetryDrone.navMode = ctrlIt->second.getLocalNavMode();
+                        telemetryDrone.returningToBase = ctrlIt->second.isReturningToBase();
+                        telemetryDrone.takingOff = ctrlIt->second.isTakingOff();
+                        telemetryDrone.proximityAlert = ctrlIt->second.hasProximityAlert();
+                        
+                        m_drones.insert_or_assign(pd.id, telemetryDrone);
+                    } else {
+                        auto it = m_drones.find(pd.id);
+                        if (it != m_drones.end()) {
+                            it->second.status = DroneStatus::Disconnected;
+                            it->second.signalStrength = pd.signalStrength;
+                        }
+                    }
+                }
+            }
+            
             handleDroneToDroneCollisions();
         }
         emit simulationUpdated();
@@ -309,7 +373,6 @@ void SimulationEngine::updateHangarDrones() {
 
 void SimulationEngine::updateDroneState(Drone& drone, double dt) {
     double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
-    drone.proximityAlert = false; 
 
     if (drone.status == DroneStatus::Landed) {
         drone.batteryLevel = qMin(100.0, drone.batteryLevel + AeroGrid::Physics::LANDED_CHARGE_RATE);
@@ -324,7 +387,34 @@ void SimulationEngine::updateDroneState(Drone& drone, double dt) {
         return;
     }
 
-    calculateDroneMovement(drone, groundHeight, dt);
+    auto ctrlIt = m_controllers.find(drone.id);
+    if (ctrlIt != m_controllers.end()) {
+        DroneSensors sensors = populateSensors(drone);
+        ctrlIt->second.updateSensors(sensors);
+        ctrlIt->second.setSignalLost(drone.signalStrength < 0.1);
+        
+        double outVx = 0.0, outVy = 0.0, outVz = 0.0;
+        ctrlIt->second.getControlOutputs(outVx, outVy, outVz);
+        
+        drone.vx = outVx;
+        drone.vy = outVy;
+        if (drone.batteryLevel > 0.0) {
+            drone.vz = outVz;
+        }
+        drone.takingOff = ctrlIt->second.isTakingOff();
+        drone.returningToBase = ctrlIt->second.isReturningToBase();
+        drone.proximityAlert = ctrlIt->second.hasProximityAlert();
+    }
+
+    if (drone.batteryLevel <= 0.0) {
+        drone.vz -= AeroGrid::Physics::GRAVITY * dt; 
+        drone.vx *= 0.99;
+        drone.vy *= 0.99;
+    } else {
+        double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
+        drone.batteryLevel -= (AeroGrid::Physics::HOVER_CONSUMPTION + speed * AeroGrid::Physics::VELOCITY_CONSUMPTION_FACTOR);
+    }
+
     applyObstacleAvoidance(drone, groundHeight);
 
     drone.x += drone.vx * dt; 
@@ -435,29 +525,16 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dist2D = qSqrt(dx*dx + dy*dy);
 
         double coarseMinDist = drone.radius + obs.radius;
-        double coarseSafeZone = coarseMinDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
-
         double obsGroundHeight = obs.groundHeight;
         double absoluteObsHeight = obsGroundHeight + obs.height;
 
-        if (drone.z < absoluteObsHeight + 2.0) {
-            if (dist2D < coarseSafeZone) {
+        if (drone.z < absoluteObsHeight) {
+            if (dist2D < coarseMinDist) {
                 double normalX = 0.0, normalY = 0.0;
                 double sdfDist = getDistanceToObstacle(obs, drone.x, drone.y, normalX, normalY);
 
                 double minDist = drone.radius;
-                double safeZone = minDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
-
-                if (sdfDist < safeZone) {
-                    drone.proximityAlert = true;
-                    double push = (safeZone - sdfDist) * AeroGrid::Physics::REPULSION_FORCE_STATIC;
-                    if (drone.status == DroneStatus::Flying) {
-                        drone.vx += normalX * push;
-                        drone.vy += normalY * push;
-                    }
-                }
-
-                if (sdfDist < minDist && drone.z < absoluteObsHeight) {
+                if (sdfDist < minDist) {
                     double speed = qSqrt(drone.vx*drone.vx + drone.vy*drone.vy + drone.vz*drone.vz);
                     if (speed >= AeroGrid::Physics::MAX_SAFE_LANDING_SPEED) {
                         drone.status = DroneStatus::Crashed;
@@ -477,17 +554,6 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double dz = drone.z - obs.z;
         double dist = qSqrt(dx*dx + dy*dy + dz*dz);
         double minDist = drone.radius + obs.radius;
-        double safeZone = minDist + AeroGrid::Physics::DYNAMIC_OBS_SAFETY_MARGIN;
-
-        if (dist < safeZone && dist > 0.001) {
-            drone.proximityAlert = true;
-            double push = (safeZone - dist) * AeroGrid::Physics::REPULSION_FORCE_DYNAMIC;
-            if (drone.status == DroneStatus::Flying) {
-                drone.vx += (dx / dist) * push;
-                drone.vy += (dy / dist) * push;
-                drone.vz += (dz / dist) * push;
-            }
-        }
 
         if (dist < minDist) {
             double rvx = drone.vx - obs.vx;
@@ -537,16 +603,42 @@ void SimulationEngine::checkGroundContact(Drone& drone, double groundHeight) {
 }
 
 void SimulationEngine::updateDroneSignalStrength(Drone& drone) {
+    if (!m_enableSignalLoss) {
+        drone.signalStrength = 1.0;
+        return;
+    }
     double sDx = drone.x - m_baseX;
     double sDy = drone.y - m_baseY;
     double sDz = drone.z;
     double distToBase = qSqrt(sDx*sDx + sDy*sDy + sDz*sDz);
-    drone.signalStrength = qMax(0.0, 1.0 - (distToBase / AeroGrid::World::SIGNAL_MAX_RANGE));
+    
+    // 1. Path Loss Factor
+    double distFactor = qMax(0.0, 1.0 - (distToBase / AeroGrid::World::SIGNAL_MAX_RANGE));
+    
+    // 2. Line of Sight Obscuration Check
+    double baseGroundHeight = m_terrain.getHeightAt(m_baseX, m_baseY);
+    double baseAntennaZ = baseGroundHeight + 2.0; // Antenna elevated 2m above ground
+    bool hasLoS = m_terrain.checkLineOfSight(m_baseX, m_baseY, baseAntennaZ, drone.x, drone.y, drone.z);
+    double blockageFactor = hasLoS ? 1.0 : 0.05; // 95% attenuation when blocked by terrain/buildings
+    
+    // 3. Jamming Factor (from dynamic obstacles / birds acting as jammers)
+    double jammingFactor = 1.0;
+    for (const auto& jammer : m_dynamicObstacles) {
+        double jdx = drone.x - jammer.x;
+        double jdy = drone.y - jammer.y;
+        double jdz = drone.z - jammer.z;
+        double jDist = qSqrt(jdx*jdx + jdy*jdy + jdz*jdz);
+        if (jDist < 25.0) {
+            jammingFactor *= qMax(0.0, (jDist / 25.0)); // Signal decays linearly within 25m of jammer
+        }
+    }
+    
+    drone.signalStrength = distFactor * blockageFactor * jammingFactor;
 }
 
 void SimulationEngine::handleDroneToDroneCollisions() {
-    for (auto it1 = m_drones.begin(); it1 != m_drones.end(); ++it1) {
-        for (auto it2 = std::next(it1); it2 != m_drones.end(); ++it2) {
+    for (auto it1 = m_physicalDrones.begin(); it1 != m_physicalDrones.end(); ++it1) {
+        for (auto it2 = std::next(it1); it2 != m_physicalDrones.end(); ++it2) {
             auto& d1 = it1->second;
             auto& d2 = it2->second;
 
@@ -559,21 +651,6 @@ void SimulationEngine::handleDroneToDroneCollisions() {
             if (dist < 0.001) continue; 
 
             double minDist = d1.radius + d2.radius;
-            double safeZone = minDist + AeroGrid::Physics::DRONE_TO_DRONE_SAFETY_BUFFER;
-
-            if (dist < safeZone) {
-                d1.proximityAlert = true;
-                d2.proximityAlert = true;
-                double push = (safeZone - dist) * AeroGrid::Physics::REPULSION_FORCE_DRONE;
-                double nx = dx / dist; double ny = dy / dist; double nz = dz / dist;
-
-                if (d1.status != DroneStatus::Landed) {
-                    d1.vx += nx * push; d1.vy += ny * push; d1.vz += nz * push;
-                }
-                if (d2.status != DroneStatus::Landed) {
-                    d2.vx -= nx * push; d2.vy -= ny * push; d2.vz -= nz * push;
-                }
-            }
 
             if (dist < minDist) {
                 double rvx = d1.vx - d2.vx;
@@ -615,8 +692,8 @@ std::vector<Drone> SimulationEngine::getDroneData() {
 
 const Drone* SimulationEngine::getDroneById(int id) const {
     std::shared_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    return (it != m_drones.end()) ? &(it->second) : nullptr;
+    auto it = m_physicalDrones.find(id);
+    return (it != m_physicalDrones.end()) ? &(it->second) : nullptr;
 }
 
 std::vector<DynamicObstacle> SimulationEngine::getDynamicObstacleData() {
@@ -641,8 +718,6 @@ void SimulationEngine::launchDrone() {
     Drone d = m_baseInventory.back();
     m_baseInventory.pop_back();
 
-    // Place drone on a specific launch pad to avoid collisions during simultaneous launch.
-    // Matches the formation logic used in flight (3-column grid).
     double offsetX = (d.id % 3 - 1) * 4.0;
     double offsetY = (d.id / 3 - 1) * 4.0;
 
@@ -652,6 +727,8 @@ void SimulationEngine::launchDrone() {
     d.status = DroneStatus::Landed;
     d.vx = d.vy = d.vz = 0;
     
+    m_controllers.insert_or_assign(d.id, DroneController(d.id));
+    m_physicalDrones.insert_or_assign(d.id, d);
     m_drones.insert_or_assign(d.id, std::move(d));
 }
 
@@ -666,7 +743,6 @@ void SimulationEngine::launchDrones(const std::vector<int>& ids) {
             Drone d = *it;
             m_baseInventory.erase(it);
 
-            // Place drone on its specific launch pad
             double offsetX = (d.id % 3 - 1) * 4.0;
             double offsetY = (d.id / 3 - 1) * 4.0;
 
@@ -676,6 +752,8 @@ void SimulationEngine::launchDrones(const std::vector<int>& ids) {
             d.status = DroneStatus::Landed;
             d.vx = d.vy = d.vz = 0;
             
+            m_controllers.insert_or_assign(d.id, DroneController(d.id));
+            m_physicalDrones.insert_or_assign(d.id, d);
             m_drones.insert_or_assign(d.id, std::move(d));
         }
     }
@@ -683,28 +761,45 @@ void SimulationEngine::launchDrones(const std::vector<int>& ids) {
 
 void SimulationEngine::assignTarget(int id, double x, double y, NavigationMode mode) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        drone.navQueue.push_back({x, y, 0.0}); // Z is calculated by mode in loop
-        drone.navMode = mode;
-        drone.returningToBase = false; // Manual target overrides RTB
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        bool lost = (physIt != m_physicalDrones.end() && physIt->second.signalStrength < 0.1);
+        if (!lost) {
+            it->second.receiveCommand({DroneCommand::Type::AssignTarget, x, y, -1, mode});
+            
+            auto telIt = m_drones.find(id);
+            if (telIt != m_drones.end()) {
+                telIt->second.navQueue = it->second.getLocalNavQueue();
+                telIt->second.navMode = it->second.getLocalNavMode();
+                telIt->second.returningToBase = it->second.isReturningToBase();
+            }
+        }
     }
 }
 
 void SimulationEngine::takeOff(int id) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        if (drone.status == DroneStatus::Landed) {
-            double groundHeight = m_terrain.getHeightAt(drone.x, drone.y);
-            double batteryRequiredToTakeoff = drone.calculateBatteryRequiredToLand(groundHeight);
-
-            if (drone.batteryLevel > batteryRequiredToTakeoff) {
-                drone.status = DroneStatus::Flying;
-                drone.takingOff = true;
-                drone.vz = 2.0; // Initial ascent thrust
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        if (physIt != m_physicalDrones.end() && physIt->second.status == DroneStatus::Landed) {
+            bool lost = (physIt->second.signalStrength < 0.1);
+            if (!lost) {
+                double groundHeight = m_terrain.getHeightAt(physIt->second.x, physIt->second.y);
+                double batteryRequired = physIt->second.calculateBatteryRequiredToLand(groundHeight);
+                if (physIt->second.batteryLevel > batteryRequired) {
+                    it->second.receiveCommand({DroneCommand::Type::Takeoff});
+                    physIt->second.status = DroneStatus::Flying;
+                    physIt->second.vz = AeroGrid::Physics::ASCENT_SPEED;
+                    
+                    auto telIt = m_drones.find(id);
+                    if (telIt != m_drones.end()) {
+                        telIt->second.status = DroneStatus::Flying;
+                        telIt->second.takingOff = true;
+                        telIt->second.vz = AeroGrid::Physics::ASCENT_SPEED;
+                    }
+                }
             }
         }
     }
@@ -712,46 +807,148 @@ void SimulationEngine::takeOff(int id) {
 
 void SimulationEngine::returnToBase(int id) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        if (drone.status == DroneStatus::Flying) {
-            drone.navQueue.clear();
-            drone.navQueue.push_back({m_baseX, m_baseY, 0.0});
-            drone.returningToBase = true;
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        bool lost = (physIt != m_physicalDrones.end() && physIt->second.signalStrength < 0.1);
+        if (!lost) {
+            it->second.receiveCommand({DroneCommand::Type::RTB, m_baseX, m_baseY});
+            
+            auto telIt = m_drones.find(id);
+            if (telIt != m_drones.end()) {
+                telIt->second.navQueue = it->second.getLocalNavQueue();
+                telIt->second.returningToBase = it->second.isReturningToBase();
+            }
         }
     }
 }
 
 void SimulationEngine::landDrone(int id) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        if (drone.status == DroneStatus::Flying) {
-            drone.status = DroneStatus::Landing;
-            drone.navQueue.clear();
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        bool lost = (physIt != m_physicalDrones.end() && physIt->second.signalStrength < 0.1);
+        if (!lost) {
+            it->second.receiveCommand({DroneCommand::Type::Land});
+            
+            auto telIt = m_drones.find(id);
+            if (telIt != m_drones.end()) {
+                telIt->second.status = DroneStatus::Landing;
+                telIt->second.navQueue.clear();
+            }
         }
     }
 }
 
 void SimulationEngine::clearNavQueue(int id) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        drone.navQueue.clear();
-        drone.vx = drone.vy = drone.vz = 0; // Stop moving
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        bool lost = (physIt != m_physicalDrones.end() && physIt->second.signalStrength < 0.1);
+        if (!lost) {
+            it->second.receiveCommand({DroneCommand::Type::ClearQueue});
+            
+            auto telIt = m_drones.find(id);
+            if (telIt != m_drones.end()) {
+                telIt->second.navQueue.clear();
+            }
+        }
     }
 }
 
 void SimulationEngine::removeNavPoint(int id, int index) {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
-    auto it = m_drones.find(id);
-    if (it != m_drones.end()) {
-        Drone& drone = it->second;
-        if (index >= 0 && index < (int)drone.navQueue.size()) {
-            drone.navQueue.erase(drone.navQueue.begin() + index);
+    auto it = m_controllers.find(id);
+    if (it != m_controllers.end()) {
+        auto physIt = m_physicalDrones.find(id);
+        bool lost = (physIt != m_physicalDrones.end() && physIt->second.signalStrength < 0.1);
+        if (!lost) {
+            it->second.receiveCommand({DroneCommand::Type::RemoveWaypoint, 0.0, 0.0, index});
+            
+            auto telIt = m_drones.find(id);
+            if (telIt != m_drones.end()) {
+                telIt->second.navQueue = it->second.getLocalNavQueue();
+            }
         }
     }
+}
+
+DroneSensors SimulationEngine::populateSensors(const Drone& pd) const {
+    DroneSensors sensors;
+    sensors.gpsX = pd.x + (std::rand() % 100 - 50) / 5000.0;
+    sensors.gpsY = pd.y + (std::rand() % 100 - 50) / 5000.0;
+    sensors.gpsZ = pd.z + (std::rand() % 100 - 50) / 5000.0;
+
+    double groundHeight = m_terrain.getHeightAt(pd.x, pd.y);
+    sensors.groundAltitudeBelow = pd.z - groundHeight;
+
+    sensors.yaw = pd.yaw;
+    sensors.pitch = pd.pitch;
+    sensors.roll = pd.roll;
+    sensors.vx = pd.vx;
+    sensors.vy = pd.vy;
+    sensors.vz = pd.vz;
+    sensors.batteryLevel = pd.batteryLevel;
+
+    double yawRad = pd.yaw * (M_PI / 180.0);
+    
+    // 1. Static obstacles
+    for (const auto& obs : m_terrain.getObstacles()) {
+        double dx = obs.x - pd.x;
+        double dy = obs.y - pd.y;
+        double dist2D = qSqrt(dx*dx + dy*dy);
+        
+        double obsGroundHeight = obs.groundHeight;
+        double absoluteObsHeight = obsGroundHeight + obs.height;
+        
+        if (dist2D < 20.0 && pd.z < absoluteObsHeight + 2.0) {
+            double normalX, normalY;
+            double sdfDist = getDistanceToObstacle(obs, pd.x, pd.y, normalX, normalY);
+            
+            double bearing = qAtan2(dy, dx) - yawRad;
+            while (bearing > M_PI) bearing -= 2.0 * M_PI;
+            while (bearing < -M_PI) bearing += 2.0 * M_PI;
+            
+            sensors.proximityPoints.push_back({sdfDist, bearing, false});
+        }
+    }
+
+    // 2. Dynamic obstacles
+    for (const auto& obs : m_dynamicObstacles) {
+        double dx = obs.x - pd.x;
+        double dy = obs.y - pd.y;
+        double dz = obs.z - pd.z;
+        double dist = qSqrt(dx*dx + dy*dy + dz*dz);
+        
+        if (dist < 20.0) {
+            double bearing = qAtan2(dy, dx) - yawRad;
+            while (bearing > M_PI) bearing -= 2.0 * M_PI;
+            while (bearing < -M_PI) bearing += 2.0 * M_PI;
+            
+            sensors.proximityPoints.push_back({dist - obs.radius, bearing, true});
+        }
+    }
+
+    // 3. Other Drones
+    for (const auto& pair : m_physicalDrones) {
+        const Drone& other = pair.second;
+        if (other.id == pd.id || other.status == DroneStatus::Crashed) continue;
+        
+        double dx = other.x - pd.x;
+        double dy = other.y - pd.y;
+        double dz = other.z - pd.z;
+        double dist = qSqrt(dx*dx + dy*dy + dz*dz);
+        
+        if (dist < 20.0) {
+            double bearing = qAtan2(dy, dx) - yawRad;
+            while (bearing > M_PI) bearing -= 2.0 * M_PI;
+            while (bearing < -M_PI) bearing += 2.0 * M_PI;
+            
+            sensors.proximityPoints.push_back({dist - other.radius, bearing, true});
+        }
+    }
+
+    return sensors;
 }

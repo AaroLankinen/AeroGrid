@@ -60,6 +60,7 @@ protected:
         double groundHeight = terrain.getHeightAt(drone->x, drone->y);
         bool isUnderground = (drone->z < groundHeight - AeroGrid::Physics::UNDERGROUND_THRESHOLD);
         bool isCrashed = (drone->status == DroneStatus::Crashed);
+        bool isDisconnected = (drone->signalStrength < 0.1);
 
         QRgb* pixels = reinterpret_cast<QRgb*>(m_cachedImage.bits());
 
@@ -374,6 +375,12 @@ protected:
                 // Depleted battery: completely black screen
                 m_cachedImage.fill(Qt::black);
             }
+        } else if (isDisconnected) {
+            // Signal lost: analog noise
+            for (int i = 0; i < w * h; ++i) {
+                int val = QRandomGenerator::global()->bounded(256);
+                pixels[i] = qRgb(val, val, val);
+            }
         } else if (isUnderground) {
             // Dark brown dirt texture with static noise
             m_cachedImage.fill(AeroGrid::UI::COLOR_UNDERGROUND_DIRT);
@@ -413,6 +420,13 @@ protected:
                 painter.setFont(f);
                 painter.drawText(rect(), Qt::AlignCenter, "NO SIGNAL\n(BATTERY DEPLETED)");
             }
+        } else if (isDisconnected) {
+            painter.setPen(QColor(230, 126, 34)); // Warning orange
+            QFont f = painter.font();
+            f.setBold(true);
+            f.setPointSize(10);
+            painter.setFont(f);
+            painter.drawText(rect(), Qt::AlignCenter, "⚠️ NO SIGNAL\n(COMMUNICATION LOST)");
         } else if (isUnderground) {
             painter.setPen(QColor(230, 126, 34)); // Warning orange
             QFont f = painter.font();
@@ -714,7 +728,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         int height = m_mapHeightSpin->value();
         int numStatic = m_staticObsSpin->value();
         int numDynamic = m_dynamicObsSpin->value();
-        m_engine.startSimulation(seed, landProp, width, height, numStatic, numDynamic);
+        m_engine.startSimulation(seed, landProp, width, height, numStatic, numDynamic, true);
         
         m_terrainView->resetView();
         m_terrainView->renderTerrainCache();

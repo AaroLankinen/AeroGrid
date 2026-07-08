@@ -298,3 +298,61 @@ double TerrainMap::getWorldHeight() const { return m_height * m_cellSize; }
 const std::vector<StaticObstacle>& TerrainMap::getObstacles() const {
     return m_staticObstacles;
 }
+
+bool TerrainMap::checkLineOfSight(double x1, double y1, double z1, double x2, double y2, double z2) const {
+    double dx = x2 - x1;
+    double dy = y2 - y1;
+    double dz = z2 - z1;
+    double dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+    if (dist < 1.0) return true; // Very close, assume clear
+
+    double stepSize = 1.0;
+    int numSteps = static_cast<int>(dist / stepSize);
+    
+    auto pointInPolygon = [](double px, double py, const std::vector<std::pair<double, double>>& verts) -> bool {
+        bool inside = false;
+        int numV = verts.size();
+        for (int i = 0, j = numV - 1; i < numV; j = i++) {
+            if (((verts[i].second > py) != (verts[j].second > py)) &&
+                (px < (verts[j].first - verts[i].first) * (py - verts[i].second) / (verts[j].second - verts[i].second) + verts[i].first)) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    };
+
+    for (int i = 0; i <= numSteps; ++i) {
+        double t = static_cast<double>(i) / numSteps;
+        double rx = x1 + t * dx;
+        double ry = y1 + t * dy;
+        double rz = z1 + t * dz;
+
+        // 1. Check terrain blockage
+        double terrainH = getHeightAt(rx, ry);
+        if (rz < terrainH - 0.2) {
+            return false; // Blocked by ground
+        }
+
+        // 2. Check static obstacles blockage
+        for (const auto& obs : m_staticObstacles) {
+            double obsH = obs.groundHeight;
+            double absoluteObsHeight = obsH + obs.height;
+            if (rz > obsH - 0.5 && rz < absoluteObsHeight) {
+                if (obs.shape == ObstacleShape::Cylinder) {
+                    double odx = rx - obs.x;
+                    double ody = ry - obs.y;
+                    if (odx*odx + ody*ody < obs.radius * obs.radius) {
+                        return false; // Blocked by cylinder building
+                    }
+                } else {
+                    auto verts = obs.getVertices();
+                    if (pointInPolygon(rx, ry, verts)) {
+                        return false; // Blocked by oriented building
+                    }
+                }
+            }
+        }
+    }
+
+    return true; // Line of sight is clear!
+}

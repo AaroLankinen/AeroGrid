@@ -78,7 +78,7 @@ public:
      * @note Calling this method while a simulation is running will stop the
      *       current one first.
      */
-    void startSimulation(unsigned int seed, double landProp, int width = 200, int height = 200, int numStaticObstacles = 10, int numDynamicObstacles = -1);
+    void startSimulation(unsigned int seed, double landProp, int width = 200, int height = 200, int numStaticObstacles = 10, int numDynamicObstacles = -1, bool enableSignalLoss = false);
     
     /**
      * @brief Stops the physics simulation and cleans up the worker thread.
@@ -347,12 +347,20 @@ private:
      */
     void updateDroneSignalStrength(Drone& drone);
 
+    /**
+     * @brief Gathers physical world data to compile a sensory package for the drone.
+     */
+    DroneSensors populateSensors(const Drone& physicalDrone) const;
+
     // Simulation State
-    std::map<int, Drone> m_drones;              ///< Currently deployed drones (ID -> Drone).
+    std::map<int, Drone> m_drones;              ///< Perceived telemetry drones database.
+    std::map<int, Drone> m_physicalDrones;      ///< True physical states of active drones.
+    std::map<int, DroneController> m_controllers; ///< Onboard autopilot controllers.
     std::vector<Drone> m_baseInventory;         ///< Drones in the hangar.
     std::vector<DynamicObstacle> m_dynamicObstacles;  ///< Moving obstacles (birds, etc.)
     mutable std::shared_mutex m_mutex;          ///< Protects m_drones with Read-Write access.
     std::atomic<bool> m_running;                ///< Flag to signal the physics thread to stop.
+    bool m_enableSignalLoss = false;            ///< True to simulate signal path loss and blockage.
     
     // Base Station & Terrain
     double m_baseX;                             ///< X coordinate of helipad (randomized).

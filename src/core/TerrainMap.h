@@ -189,6 +189,11 @@ public:
      */
     const std::vector<StaticObstacle>& getObstacles() const;
 
+    /**
+     * @brief Performs a 3D raycast to check if there is a clear line of sight (no terrain or building blockage).
+     */
+    bool checkLineOfSight(double x1, double y1, double z1, double x2, double y2, double z2) const;
+
 private:
     /**
      * @brief Evaluates raw Perlin noise at a world coordinate.
