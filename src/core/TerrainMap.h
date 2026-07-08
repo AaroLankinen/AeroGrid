@@ -24,6 +24,7 @@ struct StaticObstacle {
     double width = 0.0;     ///< Dimension width for rectangles.
     double depth = 0.0;     ///< Dimension depth for rectangles.
     double rotation = 0.0;  ///< Rotation in radians.
+    double groundHeight = 0.0; ///< Ground elevation at center.
 
     /**
      * @brief Computes and returns the 2D world-space coordinates of the obstacle's footprint vertices.
@@ -248,6 +249,7 @@ private:
     
     // Perlin Noise
     std::vector<int> m_permutation;             ///< Permutation table for Perlin noise (size 512).
+    std::vector<double> m_heightGrid;           ///< Cache of raw Perlin noise heights.
     
     // Obstacles
     std::vector<StaticObstacle> m_staticObstacles;  ///< Immobile buildings and structures.

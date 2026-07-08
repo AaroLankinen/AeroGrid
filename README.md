@@ -14,19 +14,19 @@ AeroGrid is a high-performance, real-time drone simulation environment built wit
     *   **Interactive Crosshairs**: Overlay elements showing target coordinates and center guidance.
 *   **Accurate Battery Management**: 
     *   Hovering: 0.05% per frame + 0.01% per m/s of velocity.
-    *   Hangar Charging: 0.5% per frame (5% per second) for accelerated charging.
-    *   Landed Charging: 0.05% per frame (0.5% per second) via solar panels.
+    *   Hangar Charging: 0.5% per frame (10% per second) for accelerated charging.
+    *   Landed Charging: 0.05% per frame (1.0% per second) via solar panels.
     *   Emergency Landing: Automatic descent when battery drops below safe landing threshold.
     *   **Crashed Battery Drainage**: Crashed drones continue to drain battery at the hover rate, maintaining active camera noise until battery reaches 0%.
 *   **Realistic Kinematics**: 
     *   5 m/s maximum cruise velocity.
-    *   Configurable ascent/descent rates (2.0 m/s aggressive, 1.5 m/s controlled).
+    *   Fixed ascent/descent rates (2.0 m/s ascent, 5.0 m/s aggressive descent, 1.5 m/s controlled descent).
     *   Air resistance and velocity damping.
 
 ### Collision & Crash Physics
 *   **Symmetric Repulsion Fields**: Drones maintain a 4m safety buffer from each other.
 *   **SDF-Based Static Obstacle Avoidance**:
-    *   Drones navigate around structures using a 5m proximity warning zone based on 2D Signed Distance Fields (SDF).
+    *   Drones navigate around structures using a proximity warning zone (5.0m safety margin + drone radius = 5.3m) based on 2D Signed Distance Fields (SDF).
     *   Low-speed bumps act as gentle nudges, sliding the drone along the obstacle boundaries.
     *   High-speed contacts (relative speed $\ge 2.0$ m/s) with terrain, obstacles, or other drones result in an immediate **Crash** status.
 *   **Water Safety Limits**:
@@ -152,11 +152,14 @@ The test suite provides comprehensive coverage of:
 ### Physics Constants
 *   **Gravity**: 9.81 m/s²
 *   **Frame Time**: 50ms (20Hz)
-*   **Battery Hover Cost**: 0.05% per frame
+*   **Battery Hover Cost**: 0.05% per frame (1.0% per second)
 *   **Battery Speed Cost**: 0.01% per m/s of velocity
-*   **Landed Charge Rate**: 0.05% per frame
-*   **Hangar Charge Rate**: 0.5% per frame
+*   **Landed Charge Rate**: 0.05% per frame (1.0% per second)
+*   **Hangar Charge Rate**: 0.5% per frame (10% per second)
 *   **Max Safe Landing Speed**: 2.0 m/s
+*   **Ascent Speed**: 2.0 m/s
+*   **Aggressive Landing Speed**: 5.0 m/s (downward)
+*   **Controlled Landing Speed**: 1.5 m/s (downward)
 
 ### World Constants
 *   **Drone Safety Buffer**: 4m (symmetric repulsion)

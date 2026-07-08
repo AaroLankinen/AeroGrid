@@ -21,6 +21,14 @@ namespace {
 TerrainMap::TerrainMap(unsigned int seed, double landProp, int width, int height, double cellSize, int numStaticObstacles)
     : m_width(width), m_height(height), m_cellSize(cellSize), m_permutation(512), m_staticObstacles(), m_landProp(landProp) {
     initializeNoise(seed);
+    m_heightGrid.resize(m_width * m_height);
+    for (int y = 0; y < m_height; ++y) {
+        for (int x = 0; x < m_width; ++x) {
+            double worldX = (x - m_width / 2.0) * m_cellSize;
+            double worldY = (y - m_height / 2.0) * m_cellSize;
+            m_heightGrid[y * m_width + x] = calculateRawNoise(worldX, worldY);
+        }
+    }
     calculateWaterThreshold(landProp);
     generateStaticObstacles(seed, numStaticObstacles);
 }
@@ -201,6 +209,9 @@ void TerrainMap::generateStaticObstacles(unsigned int seed, int numStaticObstacl
             break;
         }
     }
+    for (auto& obs : m_staticObstacles) {
+        obs.groundHeight = getHeightAt(obs.x, obs.y);
+    }
 }
 
 void TerrainMap::calculateWaterThreshold(double landProp) {
@@ -213,7 +224,7 @@ void TerrainMap::calculateWaterThreshold(double landProp) {
 
     for (int y = 0; y < m_height; y += sampleStride) {
         for (int x = 0; x < m_width; x += sampleStride) {
-            samples.push_back(calculateRawNoise(x * m_cellSize, y * m_cellSize));
+            samples.push_back(m_heightGrid[y * m_width + x]);
         }
     }
 
@@ -252,9 +263,30 @@ double TerrainMap::getNoiseValue(double nx, double ny, double nz) const {
 }
 
 double TerrainMap::getHeightAt(double x, double y) const {
-    // Normalize the noise so that 1.0 is the shoreline.
-    // Anything > 1.0 is land, anything < 1.0 is water.
-    double h = calculateRawNoise(x, y);
+    // Map world coordinates to grid coordinates
+    double gx = (x / m_cellSize) + m_width / 2.0;
+    double gy = (y / m_cellSize) + m_height / 2.0;
+    
+    int x0 = static_cast<int>(std::floor(gx));
+    int y0 = static_cast<int>(std::floor(gy));
+    double tx = gx - x0;
+    double ty = gy - y0;
+    
+    int x1 = std::clamp(x0 + 1, 0, m_width - 1);
+    int y1 = std::clamp(y0 + 1, 0, m_height - 1);
+    x0 = std::clamp(x0, 0, m_width - 1);
+    y0 = std::clamp(y0, 0, m_height - 1);
+    
+    double h00 = m_heightGrid[y0 * m_width + x0];
+    double h10 = m_heightGrid[y0 * m_width + x1];
+    double h01 = m_heightGrid[y1 * m_width + x0];
+    double h11 = m_heightGrid[y1 * m_width + x1];
+    
+    double h = (1.0 - tx) * (1.0 - ty) * h00 +
+               tx * (1.0 - ty) * h10 +
+               (1.0 - tx) * ty * h01 +
+               tx * ty * h11;
+               
     return qMax(0.0, h - m_waterThreshold + AeroGrid::World::LAND_THRESHOLD);
 }
 

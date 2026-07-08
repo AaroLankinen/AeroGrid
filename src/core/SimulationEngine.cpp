@@ -437,7 +437,7 @@ void SimulationEngine::applyObstacleAvoidance(Drone& drone, double groundHeight)
         double coarseMinDist = drone.radius + obs.radius;
         double coarseSafeZone = coarseMinDist + AeroGrid::Physics::STATIC_OBS_SAFETY_MARGIN;
 
-        double obsGroundHeight = m_terrain.getHeightAt(obs.x, obs.y);
+        double obsGroundHeight = obs.groundHeight;
         double absoluteObsHeight = obsGroundHeight + obs.height;
 
         if (drone.z < absoluteObsHeight + 2.0) {
